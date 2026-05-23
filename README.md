@@ -38,7 +38,7 @@ python main.py
 .\scripts\build.ps1
 ```
 
-The generated executable is placed in the project root as `MonitorReminder.exe`.
+The build uses the local `.ico` file from the project root and places the generated executable in the same folder as `main.py`, as `MonitorReminder.exe`.
 
 ## Project layout
 
@@ -60,3 +60,5 @@ Apache License 2.0.
 ## Manual GitHub flow
 
 See `docs/github-commands.md` for the exact Git, tag, and GitHub CLI commands used for daily work and releases.
+
+When the packaging flow changes, update this README and the related GitHub docs in the same commit so the repository instructions stay consistent.

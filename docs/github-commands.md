@@ -17,6 +17,7 @@ gh repo create monitorreminder --public --source . --remote origin --push
 ## Release workflow
 
 ```powershell
+.\scripts\build.ps1
 git add .
 git commit -m "fix: skip restore when selected profile is already applied (V0.0.4)"
 git tag V0.0.4
@@ -24,5 +25,7 @@ git push origin main
 git push origin V0.0.4
 ```
 
-- Update `src/monitorreminder/constants.py`, `src/monitorreminder/__init__.py`, `pyproject.toml`, and `README.md` before creating the release commit.
+- Rebuild first with `scripts\build.ps1` so the release artifact uses the local `.ico` file and keeps `MonitorReminder.exe` in the project root beside `main.py`.
+- Update `src/monitorreminder/constants.py`, `src/monitorreminder/__init__.py`, `pyproject.toml`, `README.md`, and `docs/specification.md` before creating the release commit.
+- If packaging or release steps changed, update this file in the same commit.
 - The GitHub Actions workflow builds the executable, runs tests, and publishes the release matching the in-app version.

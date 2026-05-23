@@ -56,6 +56,8 @@ class RestoreSummary:
     already_aligned_count: int = 0
     missing_count: int = 0
     failed_count: int = 0
+    # 'exact' when monitor layout matches the saved signature, 'proportional' otherwise.
+    restore_mode: str = "proportional"
 
     @property
     def is_already_aligned(self) -> bool:

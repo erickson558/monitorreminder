@@ -62,3 +62,90 @@ def test_restore_profile_skips_windows_that_already_match_target(monkeypatch) ->
     assert summary.missing_count == 0
     assert summary.failed_count == 0
     assert set_window_pos_calls == []
+
+
+def test_restore_uses_exact_mode_when_monitor_signature_matches(monkeypatch) -> None:
+    """When the current monitor layout matches the saved signature, restore uses
+    the absolute pixel rect (exact mode) and not the proportional calculation."""
+    manager = WindowManager(logging.getLogger("test-exact-mode"))
+    monitor = MonitorSnapshot(name="Primary", x=0, y=0, width=1920, height=1080, is_primary=True)
+    saved_signature = "Primary:0,0,1920,1080,1"
+
+    # Saved absolute rect differs from where the proportional calculation would land
+    # (absolute=50,60 vs proportional=192,216) — exact mode must use 50,60.
+    profile = Profile(
+        id=1,
+        name="Exact",
+        monitor_signature=saved_signature,
+        windows=[
+            WindowSnapshot(
+                title="Editor",
+                process_name="code.exe",
+                class_name="Chrome_WidgetWin_1",
+                rect=WindowRect(left=50, top=60, width=800, height=600),
+                monitor_name="Primary",
+                relative_rect=RelativeRect(x=0.1, y=0.2, width=0.5, height=0.5),
+            )
+        ],
+    )
+    captured_calls: list[tuple[int, int, int, int]] = []
+
+    monkeypatch.setattr(manager, "monitor_snapshots", lambda: [monitor])
+    monkeypatch.setattr(manager, "monitor_signature", lambda monitors=None: saved_signature)
+    monkeypatch.setattr(manager, "_find_window", lambda title, class_name: 99)
+    # Current position differs enough that the window will be moved.
+    monkeypatch.setattr("monitorreminder.window_manager.win32gui.GetWindowRect", lambda hwnd: (0, 0, 400, 300))
+    monkeypatch.setattr("monitorreminder.window_manager.win32gui.ShowWindow", lambda hwnd, mode: None)
+    monkeypatch.setattr(
+        "monitorreminder.window_manager.win32gui.SetWindowPos",
+        lambda hwnd, after, left, top, width, height, flags: captured_calls.append((left, top, width, height)),
+    )
+
+    summary = manager.restore_profile(profile)
+
+    # Exact mode must be selected.
+    assert summary.restore_mode == "exact"
+    assert summary.restored_count == 1
+    # Coordinates must match the absolute saved rect, not the proportional ones.
+    assert captured_calls == [(50, 60, 800, 600)]
+
+
+def test_restore_uses_proportional_mode_when_monitor_signature_differs(monkeypatch) -> None:
+    """When the monitor layout changed, restore recalculates positions proportionally."""
+    manager = WindowManager(logging.getLogger("test-proportional-mode"))
+    monitor = MonitorSnapshot(name="Primary", x=0, y=0, width=1920, height=1080, is_primary=True)
+    saved_signature = "Primary:0,0,2560,1440,1"  # different from current
+
+    profile = Profile(
+        id=1,
+        name="Proportional",
+        monitor_signature=saved_signature,
+        windows=[
+            WindowSnapshot(
+                title="Browser",
+                process_name="chrome.exe",
+                class_name="Chrome_WidgetWin_1",
+                rect=WindowRect(left=256, top=288, width=1280, height=720),
+                monitor_name="Primary",
+                relative_rect=RelativeRect(x=0.1, y=0.2, width=0.5, height=0.5),
+            )
+        ],
+    )
+    captured_calls: list[tuple[int, int, int, int]] = []
+
+    monkeypatch.setattr(manager, "monitor_snapshots", lambda: [monitor])
+    monkeypatch.setattr(manager, "monitor_signature", lambda monitors=None: "Primary:0,0,1920,1080,1")
+    monkeypatch.setattr(manager, "_find_window", lambda title, class_name: 99)
+    monkeypatch.setattr("monitorreminder.window_manager.win32gui.GetWindowRect", lambda hwnd: (0, 0, 400, 300))
+    monkeypatch.setattr("monitorreminder.window_manager.win32gui.ShowWindow", lambda hwnd, mode: None)
+    monkeypatch.setattr(
+        "monitorreminder.window_manager.win32gui.SetWindowPos",
+        lambda hwnd, after, left, top, width, height, flags: captured_calls.append((left, top, width, height)),
+    )
+
+    summary = manager.restore_profile(profile)
+
+    assert summary.restore_mode == "proportional"
+    assert summary.restored_count == 1
+    # Proportional on 1920x1080: x=0.1*1920=192, y=0.2*1080=216, w=0.5*1920=960, h=0.5*1080=540
+    assert captured_calls == [(192, 216, 960, 540)]

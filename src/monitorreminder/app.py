@@ -268,11 +268,16 @@ class MonitorReminderApp(ctk.CTk):
         """Restore the saved windows for the selected profile."""
         try:
             summary = self.window_manager.restore_profile(self.current_profile)
+            # Translate the mode name (exact / proportional) for the status bar.
+            mode_label = self.t(f"restore_mode_{summary.restore_mode}")
             if summary.is_already_aligned:
-                self._set_status(self.t("status_already_applied").format(profile=summary.profile_name))
+                self._set_status(self.t("status_already_applied").format(
+                    profile=summary.profile_name, mode=mode_label
+                ))
             else:
                 self._set_status(
                     self.t("status_restored_detail").format(
+                        mode=mode_label,
                         restored=summary.restored_count,
                         aligned=summary.already_aligned_count,
                         missing=summary.missing_count,

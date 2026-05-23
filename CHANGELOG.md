@@ -2,8 +2,11 @@
 
 ## V0.0.4
 
-- Added a pre-restore validation that skips moving windows already aligned with the selected profile.
-- Added a clearer UI confirmation when the selected profile is already applied.
+- Dual restore mode: uses exact pixel coordinates when the monitor layout matches the saved signature; falls back to proportional placement when the display configuration has changed.
+- Status bar now shows which mode was used (exact / proportional) after every restore.
+- Added `restore_mode` field to `RestoreSummary` for programmatic inspection.
+- Added GitHub push skill (`.github/skills/github-push/SKILL.md`) for consistent releases.
+- Added `restore_mode_exact` and `restore_mode_proportional` i18n keys (ES & EN).
 
 ## V0.0.3
 

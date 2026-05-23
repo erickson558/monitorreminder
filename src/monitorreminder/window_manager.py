@@ -97,16 +97,37 @@ class WindowManager:
         )
 
     def restore_profile(self, profile: Profile) -> RestoreSummary:
-        """Restore the saved windows onto the closest matching current monitor layout."""
+        """Restore saved windows using exact pixel positions when the monitor layout matches
+        the saved signature, or proportional positions when the display configuration has changed."""
         monitors = self.monitor_snapshots()
-        summary = RestoreSummary(profile_name=profile.name)
+        current_signature = self.monitor_signature(monitors)
+
+        # Exact mode: the display layout is identical to when the profile was captured.
+        # Proportional mode: one or more monitors changed size, position or name.
+        use_exact = profile.monitor_signature == current_signature
+        mode = "exact" if use_exact else "proportional"
+        summary = RestoreSummary(profile_name=profile.name, restore_mode=mode)
+
+        self.logger.info(
+            "Restoring profile %s in %s mode (saved=%s current=%s)",
+            profile.id, mode, profile.monitor_signature or "<none>", current_signature,
+        )
+
         for window in profile.windows:
             hwnd = self._find_window(window.title, window.class_name)
             if not hwnd:
                 summary.missing_count += 1
                 continue
             monitor = self._select_monitor(window.monitor_name, monitors)
-            target_rect = self._target_rect(window, monitor)
+
+            # Build target rect according to the selected restore mode.
+            if use_exact:
+                # Use the absolute pixel rect captured at save time.
+                target_rect = window.rect
+            else:
+                # Recalculate position proportionally relative to the current monitor dimensions.
+                target_rect = self._target_rect(window, monitor)
+
             if self._window_matches_target(hwnd, target_rect):
                 summary.already_aligned_count += 1
                 continue
@@ -125,9 +146,10 @@ class WindowManager:
             except Exception as exc:  # pragma: no cover
                 summary.failed_count += 1
                 self.logger.warning("Failed to restore window '%s': %s", window.title, exc)
+
         self.logger.info(
-            "Restore summary for profile %s: moved=%s aligned=%s missing=%s failed=%s",
-            profile.id,
+            "Restore summary for profile %s: mode=%s moved=%s aligned=%s missing=%s failed=%s",
+            profile.id, mode,
             summary.restored_count,
             summary.already_aligned_count,
             summary.missing_count,

@@ -20,7 +20,9 @@ Create a Windows desktop utility that remembers and restores application window 
 1. The GUI must run as a Windows desktop app without a console window when packaged.
 2. The codebase separates GUI concerns from monitor and window management.
 3. Packaging uses the local icon file.
-4. Release automation uses GitHub Actions and semantic version tags.
+4. The packaged executable is generated in the project root, beside `main.py`, to keep the local and release layout consistent.
+5. Release automation uses GitHub Actions and semantic version tags.
+6. Packaging or release workflow changes must update the repository documentation used in GitHub.
 
 ## Acceptance checks
 
@@ -29,3 +31,4 @@ Create a Windows desktop utility that remembers and restores application window 
 3. Restoring a profile does not fail when a matching window is found during `EnumWindows` enumeration.
 4. Restoring a profile does not move windows that already match the selected profile within tolerance, and the UI reports that the profile is already applied.
 5. Packaging metadata matches application version `0.0.4`.
+6. The documented build flow rebuilds with the local `.ico` file and produces `MonitorReminder.exe` in the project root.
