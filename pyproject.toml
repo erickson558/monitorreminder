@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "monitorreminder"
+version = "0.0.1"
+description = "Windows monitor-aware window layout profile manager"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+authors = [
+  { name = "Synyster Rick" }
+]
+dependencies = [
+  "customtkinter==5.2.2",
+  "pywin32==306",
+  "screeninfo==0.8.1",
+  "psutil==7.1.3"
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

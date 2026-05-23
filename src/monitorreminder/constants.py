@@ -1,0 +1,6 @@
+APP_NAME = "MonitorReminder"
+APP_VERSION = "0.0.1"
+APP_TAG = f"V{APP_VERSION}"
+AUTHOR = "Synyster Rick"
+COPYRIGHT_YEAR = "2026"
+MAX_PROFILES = 5
