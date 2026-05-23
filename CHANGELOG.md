@@ -1,5 +1,10 @@
 # Changelog
 
+## V0.0.3
+
+- Fixed the restore crash caused by aborting `EnumWindows` during saved-window lookup.
+- Added a focused regression test covering stable window enumeration during restore.
+
 ## V0.0.2
 
 - Added explanatory comments and docstrings to the core modules.

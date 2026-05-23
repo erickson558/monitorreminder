@@ -140,18 +140,20 @@ class WindowManager:
 
     def _find_window(self, title: str, class_name: str) -> int | None:
         """Locate the first visible top-level window matching the stored identity."""
-        matches: list[int] = []
+        match: int | None = None
 
         def callback(hwnd: int, _: int) -> bool:
+            nonlocal match
+            if match is not None:
+                return True
             if not win32gui.IsWindowVisible(hwnd):
                 return True
             if win32gui.GetWindowText(hwnd).strip() == title and win32gui.GetClassName(hwnd) == class_name:
-                matches.append(hwnd)
-                return False
+                match = hwnd
             return True
 
         win32gui.EnumWindows(callback, 0)
-        return matches[0] if matches else None
+        return match
 
     def _process_name(self, hwnd: int) -> str:
         """Resolve a friendly process name for UI display and logs."""
