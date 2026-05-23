@@ -10,9 +10,11 @@ from typing import Callable
 import win32con
 import win32gui
 import win32process
-from screeninfo import Monitor, get_monitors
+from screeninfo import get_monitors
 
-from monitorreminder.models import MonitorSnapshot, Profile, RelativeRect, WindowRect, WindowSnapshot
+from monitorreminder.models import MonitorSnapshot, Profile, RelativeRect, RestoreSummary, WindowRect, WindowSnapshot
+
+RECT_TOLERANCE = 12
 
 try:
     import psutil
@@ -94,35 +96,44 @@ class WindowManager:
             windows=sorted(captured_windows, key=lambda item: (item.process_name.lower(), item.title.lower())),
         )
 
-    def restore_profile(self, profile: Profile) -> int:
+    def restore_profile(self, profile: Profile) -> RestoreSummary:
         """Restore the saved windows onto the closest matching current monitor layout."""
         monitors = self.monitor_snapshots()
-        restored = 0
+        summary = RestoreSummary(profile_name=profile.name)
         for window in profile.windows:
             hwnd = self._find_window(window.title, window.class_name)
             if not hwnd:
+                summary.missing_count += 1
                 continue
             monitor = self._select_monitor(window.monitor_name, monitors)
-            left = int(monitor.x + (window.relative_rect.x * monitor.width))
-            top = int(monitor.y + (window.relative_rect.y * monitor.height))
-            width = max(int(window.relative_rect.width * monitor.width), 320)
-            height = max(int(window.relative_rect.height * monitor.height), 180)
+            target_rect = self._target_rect(window, monitor)
+            if self._window_matches_target(hwnd, target_rect):
+                summary.already_aligned_count += 1
+                continue
             try:
                 win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
                 win32gui.SetWindowPos(
                     hwnd,
                     win32con.HWND_TOP,
-                    left,
-                    top,
-                    width,
-                    height,
+                    target_rect.left,
+                    target_rect.top,
+                    target_rect.width,
+                    target_rect.height,
                     win32con.SWP_SHOWWINDOW,
                 )
-                restored += 1
+                summary.restored_count += 1
             except Exception as exc:  # pragma: no cover
+                summary.failed_count += 1
                 self.logger.warning("Failed to restore window '%s': %s", window.title, exc)
-        self.logger.info("Restored %s windows from profile %s", restored, profile.id)
-        return restored
+        self.logger.info(
+            "Restore summary for profile %s: moved=%s aligned=%s missing=%s failed=%s",
+            profile.id,
+            summary.restored_count,
+            summary.already_aligned_count,
+            summary.missing_count,
+            summary.failed_count,
+        )
+        return summary
 
     def _find_monitor(self, left: int, top: int, monitors: list[MonitorSnapshot]) -> MonitorSnapshot:
         """Find the monitor that currently contains a window origin point."""
@@ -137,6 +148,31 @@ class WindowManager:
             if monitor.name == monitor_name:
                 return monitor
         return next((monitor for monitor in monitors if monitor.is_primary), monitors[0])
+
+    def _target_rect(self, window: WindowSnapshot, monitor: MonitorSnapshot) -> WindowRect:
+        """Calculate the target absolute rectangle for a saved window on the selected monitor."""
+        return WindowRect(
+            left=int(monitor.x + (window.relative_rect.x * monitor.width)),
+            top=int(monitor.y + (window.relative_rect.y * monitor.height)),
+            width=max(int(window.relative_rect.width * monitor.width), 320),
+            height=max(int(window.relative_rect.height * monitor.height), 180),
+        )
+
+    def _window_matches_target(self, hwnd: int, target_rect: WindowRect) -> bool:
+        """Check whether the current window bounds already match the target within tolerance."""
+        left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+        current_rect = WindowRect(
+            left=left,
+            top=top,
+            width=max(right - left, 1),
+            height=max(bottom - top, 1),
+        )
+        return (
+            abs(current_rect.left - target_rect.left) <= RECT_TOLERANCE
+            and abs(current_rect.top - target_rect.top) <= RECT_TOLERANCE
+            and abs(current_rect.width - target_rect.width) <= RECT_TOLERANCE
+            and abs(current_rect.height - target_rect.height) <= RECT_TOLERANCE
+        )
 
     def _find_window(self, title: str, class_name: str) -> int | None:
         """Locate the first visible top-level window matching the stored identity."""

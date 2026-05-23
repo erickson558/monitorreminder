@@ -1,5 +1,10 @@
 # Changelog
 
+## V0.0.4
+
+- Added a pre-restore validation that skips moving windows already aligned with the selected profile.
+- Added a clearer UI confirmation when the selected profile is already applied.
+
 ## V0.0.3
 
 - Fixed the restore crash caused by aborting `EnumWindows` during saved-window lookup.

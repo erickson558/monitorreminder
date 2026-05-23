@@ -50,6 +50,24 @@ class Profile:
 
 
 @dataclass(slots=True)
+class RestoreSummary:
+    profile_name: str
+    restored_count: int = 0
+    already_aligned_count: int = 0
+    missing_count: int = 0
+    failed_count: int = 0
+
+    @property
+    def is_already_aligned(self) -> bool:
+        return (
+            self.restored_count == 0
+            and self.failed_count == 0
+            and self.missing_count == 0
+            and self.already_aligned_count > 0
+        )
+
+
+@dataclass(slots=True)
 class UiSettings:
     width: int = 1180
     height: int = 780

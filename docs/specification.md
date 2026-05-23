@@ -27,4 +27,5 @@ Create a Windows desktop utility that remembers and restores application window 
 1. Unit tests validate config persistence defaults and monitor-relative layout math.
 2. A smoke import of the main package succeeds in Python 3.12.
 3. Restoring a profile does not fail when a matching window is found during `EnumWindows` enumeration.
-4. Packaging metadata matches application version `0.0.3`.
+4. Restoring a profile does not move windows that already match the selected profile within tolerance, and the UI reports that the profile is already applied.
+5. Packaging metadata matches application version `0.0.4`.

@@ -267,8 +267,18 @@ class MonitorReminderApp(ctk.CTk):
     def restore_selected_profile(self) -> None:
         """Restore the saved windows for the selected profile."""
         try:
-            restored = self.window_manager.restore_profile(self.current_profile)
-            self._set_status(f"{self.t('status_restored')} ({restored})")
+            summary = self.window_manager.restore_profile(self.current_profile)
+            if summary.is_already_aligned:
+                self._set_status(self.t("status_already_applied").format(profile=summary.profile_name))
+            else:
+                self._set_status(
+                    self.t("status_restored_detail").format(
+                        restored=summary.restored_count,
+                        aligned=summary.already_aligned_count,
+                        missing=summary.missing_count,
+                        failed=summary.failed_count,
+                    )
+                )
         except Exception:
             self.logger.exception("Profile restore failed")
             self._set_status(self.t("status_error"))
