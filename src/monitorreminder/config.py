@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Load and persist application settings next to the script or packaged executable."""
+
 import json
 from dataclasses import fields, is_dataclass
 from pathlib import Path
@@ -12,6 +14,7 @@ T = TypeVar("T")
 
 
 def _coerce_dataclass(cls: type[T], payload: dict[str, Any]) -> T:
+    """Rebuild nested dataclasses from plain JSON dictionaries."""
     values: dict[str, Any] = {}
     type_hints = get_type_hints(cls)
     for field_info in fields(cls):
@@ -35,10 +38,12 @@ def _coerce_dataclass(cls: type[T], payload: dict[str, Any]) -> T:
 
 
 def default_profiles() -> list[Profile]:
+    """Create the fixed set of five user profiles expected by the UI."""
     return [Profile(id=index, name=f"Profile {index}") for index in range(1, 6)]
 
 
 def load_config(path: Path | None = None) -> AppConfig:
+    """Load persisted settings, or return a default configuration on first run."""
     selected_path = path or config_path()
     if not selected_path.exists():
         return AppConfig(profiles=default_profiles())
@@ -53,5 +58,6 @@ def load_config(path: Path | None = None) -> AppConfig:
 
 
 def save_config(config: AppConfig, path: Path | None = None) -> None:
+    """Persist configuration changes immediately to support auto-save behavior."""
     selected_path = path or config_path()
     selected_path.write_text(json.dumps(config.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8")

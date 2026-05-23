@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Background watcher that notices monitor layout changes without blocking the GUI."""
+
 import threading
 import time
 from collections.abc import Callable
@@ -21,6 +23,7 @@ class MonitorWatcher:
         return self._thread is not None and self._thread.is_alive()
 
     def start(self) -> None:
+        """Start the watcher thread if it is not already running."""
         if self.is_running:
             return
         self._stop_event.clear()
@@ -29,9 +32,11 @@ class MonitorWatcher:
         self._thread.start()
 
     def stop(self) -> None:
+        """Request watcher shutdown; the thread exits on the next poll cycle."""
         self._stop_event.set()
 
     def _run(self) -> None:
+        """Poll the current display signature and notify the UI when it changes."""
         while not self._stop_event.is_set():
             signature = self.window_manager.monitor_signature()
             if signature != self._last_signature:

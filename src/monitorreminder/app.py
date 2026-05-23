@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Desktop UI for saving and restoring monitor-aware window profiles."""
+
 import logging
 import webbrowser
 from functools import partial
@@ -80,6 +82,7 @@ class MonitorReminderApp(ctk.CTk):
         self.configure(menu=menu_bar)
 
     def _build_layout(self) -> None:
+        # Hero area groups the primary actions and global application controls.
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
 
@@ -116,6 +119,7 @@ class MonitorReminderApp(ctk.CTk):
         exit_button = ctk.CTkButton(controls, text=self.t("exit"), command=self._on_close, fg_color="#b03d3d", hover_color="#912e2e")
         exit_button.grid(row=1, column=1, sticky="ew")
 
+        # Main body separates profile management from monitor and automation details.
         body = ctk.CTkFrame(self, fg_color="transparent")
         body.grid(row=1, column=0, padx=24, pady=12, sticky="nsew")
         body.grid_columnconfigure(0, weight=5)
@@ -197,6 +201,7 @@ class MonitorReminderApp(ctk.CTk):
         self.window_list.grid(row=4, column=0, padx=20, pady=(0, 20), sticky="nsew")
         self.window_list.configure(state="disabled")
 
+        # Status bar keeps feedback visible without interrupting the user flow.
         status_bar = ctk.CTkFrame(self, corner_radius=18, fg_color=("#dfeaf7", "#112338"))
         status_bar.grid(row=2, column=0, padx=24, pady=(0, 24), sticky="ew")
         status_bar.grid_columnconfigure(0, weight=1)
@@ -247,6 +252,7 @@ class MonitorReminderApp(ctk.CTk):
         save_config(self.config_data)
 
     def save_selected_profile(self) -> None:
+        """Capture the current visible windows into the selected profile."""
         try:
             updated = self.window_manager.capture_profile(self.current_profile)
             self._replace_profile(updated)
@@ -259,6 +265,7 @@ class MonitorReminderApp(ctk.CTk):
             self._set_status(self.t("status_error"))
 
     def restore_selected_profile(self) -> None:
+        """Restore the saved windows for the selected profile."""
         try:
             restored = self.window_manager.restore_profile(self.current_profile)
             self._set_status(f"{self.t('status_restored')} ({restored})")
@@ -267,6 +274,7 @@ class MonitorReminderApp(ctk.CTk):
             self._set_status(self.t("status_error"))
 
     def rename_selected_profile(self) -> None:
+        """Rename the selected profile and persist the change immediately."""
         new_name = self.profile_name.get().strip()[:40] or self.current_profile.name
         updated = self.current_profile
         updated.name = new_name
@@ -313,8 +321,10 @@ class MonitorReminderApp(ctk.CTk):
         self.countdown_label.configure(text=self._countdown_text())
 
     def _change_language(self, language: str) -> None:
+        """Persist language changes and restart the UI so all labels refresh consistently."""
         self.config_data.ui.language = language
         save_config(self.config_data)
+        self.stop_monitoring()
         self.destroy()
         run()
 
@@ -343,6 +353,7 @@ class MonitorReminderApp(ctk.CTk):
         self._set_status(self.t("status_monitoring"))
 
     def _refresh_window_list(self) -> None:
+        """Show a compact preview of the windows saved in the active profile."""
         lines = []
         for item in self.current_profile.windows[:40]:
             lines.append(f"{item.process_name} | {item.title}")
@@ -384,6 +395,7 @@ class MonitorReminderApp(ctk.CTk):
         return f"{self.config_data.ui.auto_close_seconds}s / {self.auto_close_remaining}s"
 
     def _on_configure(self, _event: object) -> None:
+        """Auto-save window size and position on resize or move."""
         if self.state() == "zoomed":
             return
         try:
@@ -402,6 +414,7 @@ class MonitorReminderApp(ctk.CTk):
         save_config(self.config_data)
 
     def _on_close(self) -> None:
+        """Persist state and close cleanly."""
         self.stop_monitoring()
         save_config(self.config_data)
         self.destroy()

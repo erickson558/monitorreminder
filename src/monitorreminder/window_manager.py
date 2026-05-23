@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Capture and restore window layouts using Windows APIs and monitor-relative math."""
+
 import logging
 from dataclasses import replace
 from datetime import datetime
@@ -23,6 +25,7 @@ class WindowManager:
         self.logger = logger
 
     def monitor_snapshots(self) -> list[MonitorSnapshot]:
+        """Read the current monitor arrangement from Windows."""
         monitors = []
         for monitor in get_monitors():
             monitors.append(
@@ -38,6 +41,7 @@ class WindowManager:
         return monitors
 
     def monitor_signature(self, monitors: list[MonitorSnapshot] | None = None) -> str:
+        """Generate a stable signature used by the watcher to detect display changes."""
         snapshots = monitors or self.monitor_snapshots()
         return "|".join(
             f"{item.name}:{item.x},{item.y},{item.width},{item.height},{int(item.is_primary)}"
@@ -45,6 +49,7 @@ class WindowManager:
         )
 
     def capture_profile(self, profile: Profile) -> Profile:
+        """Capture visible top-level windows and store their monitor-relative positions."""
         monitors = self.monitor_snapshots()
         captured_windows: list[WindowSnapshot] = []
 
@@ -90,6 +95,7 @@ class WindowManager:
         )
 
     def restore_profile(self, profile: Profile) -> int:
+        """Restore the saved windows onto the closest matching current monitor layout."""
         monitors = self.monitor_snapshots()
         restored = 0
         for window in profile.windows:
@@ -119,18 +125,21 @@ class WindowManager:
         return restored
 
     def _find_monitor(self, left: int, top: int, monitors: list[MonitorSnapshot]) -> MonitorSnapshot:
+        """Find the monitor that currently contains a window origin point."""
         for monitor in monitors:
             if monitor.x <= left < monitor.x + monitor.width and monitor.y <= top < monitor.y + monitor.height:
                 return monitor
         return next((monitor for monitor in monitors if monitor.is_primary), monitors[0])
 
     def _select_monitor(self, monitor_name: str, monitors: list[MonitorSnapshot]) -> MonitorSnapshot:
+        """Prefer the saved monitor by name and fall back to the active primary monitor."""
         for monitor in monitors:
             if monitor.name == monitor_name:
                 return monitor
         return next((monitor for monitor in monitors if monitor.is_primary), monitors[0])
 
     def _find_window(self, title: str, class_name: str) -> int | None:
+        """Locate the first visible top-level window matching the stored identity."""
         matches: list[int] = []
 
         def callback(hwnd: int, _: int) -> bool:
@@ -145,6 +154,7 @@ class WindowManager:
         return matches[0] if matches else None
 
     def _process_name(self, hwnd: int) -> str:
+        """Resolve a friendly process name for UI display and logs."""
         if psutil is None:
             return "unknown"
         try:

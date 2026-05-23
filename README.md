@@ -51,7 +51,7 @@ The generated executable is placed in the project root as `MonitorReminder.exe`.
 
 ## Versioning
 
-This project uses semantic versioning with a `Vx.x.x` release tag format. The initial version is `V0.0.1`.
+This project uses semantic versioning with a `Vx.x.x` release tag format. The current version is `V0.0.2`.
 
 ## License
 
