@@ -157,6 +157,8 @@ class MonitorReminderApp(ctk.CTk):
 
         rename_entry = ctk.CTkEntry(rename_frame, textvariable=self.profile_name, placeholder_text=self.t("rename_hint"))
         rename_entry.grid(row=0, column=0, padx=14, pady=14, sticky="ew")
+        rename_entry.bind("<Return>", lambda _event: self.rename_selected_profile())
+        rename_entry.bind("<FocusOut>", lambda _event: self.rename_selected_profile())
 
         right_panel = ctk.CTkFrame(body, corner_radius=24)
         right_panel.grid(row=0, column=1, padx=(12, 0), sticky="nsew")
@@ -275,7 +277,13 @@ class MonitorReminderApp(ctk.CTk):
         """Capture the current visible windows into the selected profile and immediately
         restore them so every window moves to its saved position."""
         try:
-            updated = self.window_manager.capture_profile(self.current_profile)
+            # Apply any name typed in the rename field before capturing so the
+            # user does not need to click a separate Rename button.
+            profile = self.current_profile
+            pending_name = self.profile_name.get().strip()[:40]
+            if pending_name and pending_name != profile.name:
+                profile.name = pending_name
+            updated = self.window_manager.capture_profile(profile)
             self._replace_profile(updated)
             self.profile_name.set(updated.name)
             self._render_profile_cards()
