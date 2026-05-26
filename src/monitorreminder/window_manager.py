@@ -43,20 +43,28 @@ class WindowManager:
         return monitors
 
     def monitor_signature(self, monitors: list[MonitorSnapshot] | None = None) -> str:
-        """Generate a stable signature used by the watcher to detect display changes."""
-        snapshots = monitors or self.monitor_snapshots()
+        """Generate a stable signature used by the watcher to detect display changes.
+
+        The monitor API can return displays in varying order (and sometimes with
+        inconsistent names), so we normalize by geometry and primary flag.
+        """
+        snapshots = sorted(
+            monitors or self.monitor_snapshots(),
+            key=lambda item: (item.x, item.y, item.width, item.height, int(item.is_primary), item.name),
+        )
         return "|".join(
-            f"{item.name}:{item.x},{item.y},{item.width},{item.height},{int(item.is_primary)}"
+            f"{item.x},{item.y},{item.width},{item.height},{int(item.is_primary)}"
             for item in snapshots
         )
 
     def capture_profile(self, profile: Profile) -> Profile:
-        """Capture visible top-level windows and store their monitor-relative positions."""
+        """Capture top-level windows (normal and minimized) with monitor-relative positions."""
         monitors = self.monitor_snapshots()
         captured_windows: list[WindowSnapshot] = []
 
         def callback(hwnd: int, _: int) -> bool:
-            if not win32gui.IsWindowVisible(hwnd) or win32gui.IsIconic(hwnd):
+            is_minimized = bool(win32gui.IsIconic(hwnd))
+            if not win32gui.IsWindowVisible(hwnd) and not is_minimized:
                 return True
             title = win32gui.GetWindowText(hwnd).strip()
             if not title:
@@ -64,10 +72,13 @@ class WindowManager:
             class_name = win32gui.GetClassName(hwnd)
             if class_name in {"Shell_TrayWnd", "Progman", "WorkerW"}:
                 return True
-            left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+            if is_minimized:
+                left, top, right, bottom = self._normal_rect_from_placement(hwnd) or win32gui.GetWindowRect(hwnd)
+            else:
+                left, top, right, bottom = win32gui.GetWindowRect(hwnd)
             width = max(right - left, 1)
             height = max(bottom - top, 1)
-            monitor = self._find_monitor(left, top, monitors)
+            monitor, monitor_index = self._find_monitor_with_index(left, top, monitors)
             relative = RelativeRect(
                 x=(left - monitor.x) / max(monitor.width, 1),
                 y=(top - monitor.y) / max(monitor.height, 1),
@@ -83,6 +94,8 @@ class WindowManager:
                     rect=WindowRect(left=left, top=top, width=width, height=height),
                     monitor_name=monitor.name,
                     relative_rect=relative,
+                    monitor_index=monitor_index,
+                    is_minimized=is_minimized,
                 )
             )
             return True
@@ -114,11 +127,11 @@ class WindowManager:
         )
 
         for window in profile.windows:
-            hwnd = self._find_window(window.title, window.class_name)
+            hwnd = self._find_window(window.title, window.class_name, window.process_name)
             if not hwnd:
                 summary.missing_count += 1
                 continue
-            monitor = self._select_monitor(window.monitor_name, monitors)
+            monitor = self._select_monitor(window.monitor_name, window.monitor_index, monitors)
 
             # Build target rect according to the selected restore mode.
             if use_exact:
@@ -128,7 +141,9 @@ class WindowManager:
                 # Recalculate position proportionally relative to the current monitor dimensions.
                 target_rect = self._target_rect(window, monitor)
 
-            if self._window_matches_target(hwnd, target_rect):
+            current_is_minimized = bool(win32gui.IsIconic(hwnd))
+
+            if self._window_matches_target(hwnd, target_rect) and current_is_minimized == window.is_minimized:
                 summary.already_aligned_count += 1
                 continue
             try:
@@ -142,6 +157,8 @@ class WindowManager:
                     target_rect.height,
                     win32con.SWP_SHOWWINDOW,
                 )
+                if window.is_minimized:
+                    win32gui.ShowWindow(hwnd, win32con.SW_MINIMIZE)
                 summary.restored_count += 1
             except Exception as exc:  # pragma: no cover
                 summary.failed_count += 1
@@ -157,18 +174,30 @@ class WindowManager:
         )
         return summary
 
-    def _find_monitor(self, left: int, top: int, monitors: list[MonitorSnapshot]) -> MonitorSnapshot:
-        """Find the monitor that currently contains a window origin point."""
-        for monitor in monitors:
+    def _find_monitor_with_index(self, left: int, top: int, monitors: list[MonitorSnapshot]) -> tuple[MonitorSnapshot, int]:
+        """Find the monitor/index that currently contains a window origin point."""
+        for index, monitor in enumerate(monitors):
             if monitor.x <= left < monitor.x + monitor.width and monitor.y <= top < monitor.y + monitor.height:
-                return monitor
-        return next((monitor for monitor in monitors if monitor.is_primary), monitors[0])
+                return monitor, index
 
-    def _select_monitor(self, monitor_name: str, monitors: list[MonitorSnapshot]) -> MonitorSnapshot:
-        """Prefer the saved monitor by name and fall back to the active primary monitor."""
+        primary_index = next((index for index, monitor in enumerate(monitors) if monitor.is_primary), 0)
+        return monitors[primary_index], primary_index
+
+    def _select_monitor(
+        self,
+        monitor_name: str,
+        monitor_index: int | None,
+        monitors: list[MonitorSnapshot],
+    ) -> MonitorSnapshot:
+        """Select the best target monitor for a saved window.
+
+        Preference order: same monitor name, then saved index, then primary.
+        """
         for monitor in monitors:
             if monitor.name == monitor_name:
                 return monitor
+        if monitor_index is not None and 0 <= monitor_index < len(monitors):
+            return monitors[monitor_index]
         return next((monitor for monitor in monitors if monitor.is_primary), monitors[0])
 
     def _target_rect(self, window: WindowSnapshot, monitor: MonitorSnapshot) -> WindowRect:
@@ -182,7 +211,10 @@ class WindowManager:
 
     def _window_matches_target(self, hwnd: int, target_rect: WindowRect) -> bool:
         """Check whether the current window bounds already match the target within tolerance."""
-        left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+        if win32gui.IsIconic(hwnd):
+            left, top, right, bottom = self._normal_rect_from_placement(hwnd) or win32gui.GetWindowRect(hwnd)
+        else:
+            left, top, right, bottom = win32gui.GetWindowRect(hwnd)
         current_rect = WindowRect(
             left=left,
             top=top,
@@ -196,22 +228,38 @@ class WindowManager:
             and abs(current_rect.height - target_rect.height) <= RECT_TOLERANCE
         )
 
-    def _find_window(self, title: str, class_name: str) -> int | None:
-        """Locate the first visible top-level window matching the stored identity."""
+    def _find_window(self, title: str, class_name: str, process_name: str = "") -> int | None:
+        """Locate a visible top-level window matching the stored identity."""
         match: int | None = None
 
         def callback(hwnd: int, _: int) -> bool:
             nonlocal match
             if match is not None:
                 return True
-            if not win32gui.IsWindowVisible(hwnd):
+            if not win32gui.IsWindowVisible(hwnd) and not win32gui.IsIconic(hwnd):
                 return True
             if win32gui.GetWindowText(hwnd).strip() == title and win32gui.GetClassName(hwnd) == class_name:
+                if process_name and process_name != "unknown" and self._process_name(hwnd) != process_name:
+                    return True
                 match = hwnd
             return True
 
         win32gui.EnumWindows(callback, 0)
         return match
+
+    def _normal_rect_from_placement(self, hwnd: int) -> tuple[int, int, int, int] | None:
+        """Return the normal (restored) window rectangle when available."""
+        try:
+            placement = win32gui.GetWindowPlacement(hwnd)
+            normal_rect = placement[4]
+            if len(normal_rect) != 4:
+                return None
+            left, top, right, bottom = (int(value) for value in normal_rect)
+            if right <= left or bottom <= top:
+                return None
+            return left, top, right, bottom
+        except Exception:
+            return None
 
     def _process_name(self, hwnd: int) -> str:
         """Resolve a friendly process name for UI display and logs."""

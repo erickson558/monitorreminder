@@ -26,6 +26,23 @@ def test_find_window_returns_match_without_aborting_enum(monkeypatch) -> None:
     assert manager._find_window("Target", "CabinetWClass") == 20
 
 
+def test_find_window_prefers_matching_process_name(monkeypatch) -> None:
+    manager = WindowManager(logging.getLogger("test-window-manager"))
+
+    def fake_enum_windows(callback, extra) -> None:
+        assert extra == 0
+        for hwnd in [10, 20]:
+            callback(hwnd, extra)
+
+    monkeypatch.setattr("monitorreminder.window_manager.win32gui.EnumWindows", fake_enum_windows)
+    monkeypatch.setattr("monitorreminder.window_manager.win32gui.IsWindowVisible", lambda hwnd: True)
+    monkeypatch.setattr("monitorreminder.window_manager.win32gui.GetWindowText", lambda hwnd: "Target")
+    monkeypatch.setattr("monitorreminder.window_manager.win32gui.GetClassName", lambda hwnd: "Notepad")
+    monkeypatch.setattr(manager, "_process_name", lambda hwnd: "foo.exe" if hwnd == 10 else "bar.exe")
+
+    assert manager._find_window("Target", "Notepad", "bar.exe") == 20
+
+
 def test_restore_profile_skips_windows_that_already_match_target(monkeypatch) -> None:
     manager = WindowManager(logging.getLogger("test-window-manager"))
     monitor = MonitorSnapshot(name="Primary", x=0, y=0, width=1920, height=1080, is_primary=True)
@@ -46,7 +63,7 @@ def test_restore_profile_skips_windows_that_already_match_target(monkeypatch) ->
     set_window_pos_calls: list[tuple[int, int, int, int]] = []
 
     monkeypatch.setattr(manager, "monitor_snapshots", lambda: [monitor])
-    monkeypatch.setattr(manager, "_find_window", lambda title, class_name: 99)
+    monkeypatch.setattr(manager, "_find_window", lambda title, class_name, process_name="": 99)
     monkeypatch.setattr("monitorreminder.window_manager.win32gui.GetWindowRect", lambda hwnd: (192, 216, 1152, 756))
     monkeypatch.setattr("monitorreminder.window_manager.win32gui.ShowWindow", lambda hwnd, mode: None)
     monkeypatch.setattr(
@@ -69,7 +86,7 @@ def test_restore_uses_exact_mode_when_monitor_signature_matches(monkeypatch) -> 
     the absolute pixel rect (exact mode) and not the proportional calculation."""
     manager = WindowManager(logging.getLogger("test-exact-mode"))
     monitor = MonitorSnapshot(name="Primary", x=0, y=0, width=1920, height=1080, is_primary=True)
-    saved_signature = "Primary:0,0,1920,1080,1"
+    saved_signature = "0,0,1920,1080,1"
 
     # Saved absolute rect differs from where the proportional calculation would land
     # (absolute=50,60 vs proportional=192,216) — exact mode must use 50,60.
@@ -92,7 +109,7 @@ def test_restore_uses_exact_mode_when_monitor_signature_matches(monkeypatch) -> 
 
     monkeypatch.setattr(manager, "monitor_snapshots", lambda: [monitor])
     monkeypatch.setattr(manager, "monitor_signature", lambda monitors=None: saved_signature)
-    monkeypatch.setattr(manager, "_find_window", lambda title, class_name: 99)
+    monkeypatch.setattr(manager, "_find_window", lambda title, class_name, process_name="": 99)
     # Current position differs enough that the window will be moved.
     monkeypatch.setattr("monitorreminder.window_manager.win32gui.GetWindowRect", lambda hwnd: (0, 0, 400, 300))
     monkeypatch.setattr("monitorreminder.window_manager.win32gui.ShowWindow", lambda hwnd, mode: None)
@@ -114,7 +131,7 @@ def test_restore_uses_proportional_mode_when_monitor_signature_differs(monkeypat
     """When the monitor layout changed, restore recalculates positions proportionally."""
     manager = WindowManager(logging.getLogger("test-proportional-mode"))
     monitor = MonitorSnapshot(name="Primary", x=0, y=0, width=1920, height=1080, is_primary=True)
-    saved_signature = "Primary:0,0,2560,1440,1"  # different from current
+    saved_signature = "0,0,2560,1440,1"  # different from current
 
     profile = Profile(
         id=1,
@@ -134,8 +151,8 @@ def test_restore_uses_proportional_mode_when_monitor_signature_differs(monkeypat
     captured_calls: list[tuple[int, int, int, int]] = []
 
     monkeypatch.setattr(manager, "monitor_snapshots", lambda: [monitor])
-    monkeypatch.setattr(manager, "monitor_signature", lambda monitors=None: "Primary:0,0,1920,1080,1")
-    monkeypatch.setattr(manager, "_find_window", lambda title, class_name: 99)
+    monkeypatch.setattr(manager, "monitor_signature", lambda monitors=None: "0,0,1920,1080,1")
+    monkeypatch.setattr(manager, "_find_window", lambda title, class_name, process_name="": 99)
     monkeypatch.setattr("monitorreminder.window_manager.win32gui.GetWindowRect", lambda hwnd: (0, 0, 400, 300))
     monkeypatch.setattr("monitorreminder.window_manager.win32gui.ShowWindow", lambda hwnd, mode: None)
     monkeypatch.setattr(
@@ -149,3 +166,46 @@ def test_restore_uses_proportional_mode_when_monitor_signature_differs(monkeypat
     assert summary.restored_count == 1
     # Proportional on 1920x1080: x=0.1*1920=192, y=0.2*1080=216, w=0.5*1920=960, h=0.5*1080=540
     assert captured_calls == [(192, 216, 960, 540)]
+
+
+def test_restore_uses_monitor_index_when_name_changes(monkeypatch) -> None:
+    manager = WindowManager(logging.getLogger("test-monitor-index-fallback"))
+    monitors = [
+        MonitorSnapshot(name="Renamed-Primary", x=0, y=0, width=1920, height=1080, is_primary=True),
+        MonitorSnapshot(name="Renamed-Secondary", x=1920, y=0, width=1920, height=1080, is_primary=False),
+    ]
+
+    profile = Profile(
+        id=1,
+        name="Desk",
+        monitor_signature="0,0,1920,1080,1|1920,0,1920,1080,0",
+        windows=[
+            WindowSnapshot(
+                title="Editor",
+                process_name="code.exe",
+                class_name="Chrome_WidgetWin_1",
+                rect=WindowRect(left=2000, top=120, width=1000, height=700),
+                monitor_name="Old-Secondary",
+                monitor_index=1,
+                relative_rect=RelativeRect(x=0.1, y=0.1, width=0.5, height=0.5),
+            )
+        ],
+    )
+    captured_calls: list[tuple[int, int, int, int]] = []
+
+    monkeypatch.setattr(manager, "monitor_snapshots", lambda: monitors)
+    monkeypatch.setattr(manager, "monitor_signature", lambda monitors=None: "different")
+    monkeypatch.setattr(manager, "_find_window", lambda title, class_name, process_name="": 99)
+    monkeypatch.setattr("monitorreminder.window_manager.win32gui.GetWindowRect", lambda hwnd: (0, 0, 400, 300))
+    monkeypatch.setattr("monitorreminder.window_manager.win32gui.ShowWindow", lambda hwnd, mode: None)
+    monkeypatch.setattr(
+        "monitorreminder.window_manager.win32gui.SetWindowPos",
+        lambda hwnd, after, left, top, width, height, flags: captured_calls.append((left, top, width, height)),
+    )
+
+    summary = manager.restore_profile(profile)
+
+    assert summary.restore_mode == "proportional"
+    assert summary.restored_count == 1
+    # Must restore on index=1 monitor (x starts at 1920), not on primary.
+    assert captured_calls == [(2112, 108, 960, 540)]
