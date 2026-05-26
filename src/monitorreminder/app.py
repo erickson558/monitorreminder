@@ -6,7 +6,7 @@ import logging
 import threading
 import webbrowser
 from functools import partial
-from tkinter import Menu, StringVar
+from tkinter import Menu, StringVar, messagebox
 
 import customtkinter as ctk
 
@@ -425,6 +425,16 @@ class MonitorReminderApp(ctk.CTk):
             pending_name = self.profile_name.get().strip()[:40]
             if pending_name and pending_name != profile.name:
                 profile.name = pending_name
+            # Guard: ask before overwriting a profile that already has windows.
+            if profile.windows:
+                confirmed = messagebox.askyesno(
+                    self.t("confirm_overwrite_title"),
+                    self.t("confirm_overwrite_msg").format(name=profile.name),
+                    parent=self,
+                )
+                if not confirmed:
+                    self._set_status(self.t("status_overwrite_cancelled"))
+                    return
             updated = self.window_manager.capture_profile(profile)
             self._replace_profile(updated)
             self.profile_name.set(updated.name)

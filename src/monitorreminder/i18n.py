@@ -46,6 +46,9 @@ TRANSLATIONS = {
         "telemetry_sync": "SYNC LINK: activo",
         "status_saved_restored": "Guardado y restaurado ({mode}): movidas {restored}, ya correctas {aligned}",
         "status_auto_restored": "Auto-restaurado tras cambio de pantalla ({mode}): movidas {restored}, ya correctas {aligned}, no encontradas {missing}, fallidas {failed}",
+        "confirm_overwrite_title": "¿Sobrescribir escena?",
+        "confirm_overwrite_msg": "El perfil '{name}' ya tiene ventanas guardadas.\n¿Deseas sobrescribir la escena actual?",
+        "status_overwrite_cancelled": "Captura cancelada — el perfil no fue modificado",
     },
     "en": {
         "app_title": "MonitorReminder",
@@ -92,6 +95,9 @@ TRANSLATIONS = {
         "telemetry_sync": "SYNC LINK: active",
         "status_saved_restored": "Saved and restored ({mode}): moved {restored}, already correct {aligned}",
         "status_auto_restored": "Auto-restored after display change ({mode}): moved {restored}, already correct {aligned}, missing {missing}, failed {failed}",
+        "confirm_overwrite_title": "Overwrite scene?",
+        "confirm_overwrite_msg": "Profile '{name}' already has saved windows.\nDo you want to overwrite the current scene?",
+        "status_overwrite_cancelled": "Capture cancelled — profile was not modified",
     },
 }
 

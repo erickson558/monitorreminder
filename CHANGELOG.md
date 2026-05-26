@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## V0.2.0
+
+- Added overwrite confirmation dialog when saving a profile that already has captured windows, preventing accidental data loss.
+- Added `validations` skill to document and standardise user-facing guard patterns (confirm dialogs, input guards, status-bar feedback).
 - Reduced GUI lag while moving/resizing the main window by debouncing geometry persistence writes.
 - Prevented overlapping auto-restore tasks when monitor events fire in quick succession.
 - Excluded the MonitorReminder main window from capture/restore to avoid visual glitches while moving across displays.

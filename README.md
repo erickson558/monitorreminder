@@ -51,7 +51,7 @@ The build uses the local `.ico` file from the project root and places the genera
 
 ## Versioning
 
-This project uses semantic versioning with a `Vx.x.x` release tag format. The current version is `V0.1.0`.
+This project uses semantic versioning with a `Vx.x.x` release tag format. The current version is `V0.2.0`.
 
 ## License
 
