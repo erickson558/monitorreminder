@@ -168,8 +168,27 @@ class MonitorReminderApp(ctk.CTk):
         monitor_value = ctk.CTkLabel(right_panel, textvariable=self.monitor_summary, justify="left", anchor="w")
         monitor_value.grid(row=1, column=0, padx=20, pady=(0, 16), sticky="ew")
 
+        # How-to card — concise instructions for the end user.
+        howto_card = ctk.CTkFrame(right_panel, fg_color=("#d6edda", "#0d2818"), corner_radius=18)
+        howto_card.grid(row=2, column=0, padx=20, pady=(0, 16), sticky="ew")
+        howto_card.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            howto_card,
+            text=self.t("howto_title"),
+            font=ctk.CTkFont("Segoe UI Semibold", 13, "bold"),
+            anchor="w",
+        ).grid(row=0, column=0, padx=14, pady=(12, 2), sticky="w")
+        ctk.CTkLabel(
+            howto_card,
+            text=self.t("howto_steps"),
+            justify="left",
+            anchor="w",
+            wraplength=320,
+            font=ctk.CTkFont("Segoe UI", 12),
+        ).grid(row=1, column=0, padx=14, pady=(0, 12), sticky="ew")
+
         automation_card = ctk.CTkFrame(right_panel, fg_color=("#edf4fb", "#102033"), corner_radius=18)
-        automation_card.grid(row=2, column=0, padx=20, pady=(0, 16), sticky="ew")
+        automation_card.grid(row=3, column=0, padx=20, pady=(0, 16), sticky="ew")
         automation_card.grid_columnconfigure(0, weight=1)
 
         auto_start_checkbox = ctk.CTkCheckBox(
@@ -196,10 +215,10 @@ class MonitorReminderApp(ctk.CTk):
         self.auto_close_entry.bind("<KeyRelease>", self._persist_auto_close_seconds)
 
         windows_label = ctk.CTkLabel(right_panel, text=self.t("windows"), font=ctk.CTkFont("Segoe UI Semibold", 20, "bold"))
-        windows_label.grid(row=3, column=0, padx=20, pady=(0, 10), sticky="w")
+        windows_label.grid(row=4, column=0, padx=20, pady=(0, 10), sticky="w")
 
-        self.window_list = ctk.CTkTextbox(right_panel, height=220)
-        self.window_list.grid(row=4, column=0, padx=20, pady=(0, 20), sticky="nsew")
+        self.window_list = ctk.CTkTextbox(right_panel, height=160)
+        self.window_list.grid(row=5, column=0, padx=20, pady=(0, 20), sticky="nsew")
         self.window_list.configure(state="disabled")
 
         # Status bar keeps feedback visible without interrupting the user flow.
