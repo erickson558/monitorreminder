@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Reduced GUI lag while moving/resizing the main window by debouncing geometry persistence writes.
+- Prevented overlapping auto-restore tasks when monitor events fire in quick succession.
+- Excluded the MonitorReminder main window from capture/restore to avoid visual glitches while moving across displays.
+
 ## V0.1.0
 
 - Futuristic UI refresh with a stronger visual hierarchy: command-center hero, stylized cards, clearer monitor readouts, and updated action styling.

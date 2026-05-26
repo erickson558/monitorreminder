@@ -3,6 +3,7 @@ from __future__ import annotations
 """Capture and restore window layouts using Windows APIs and monitor-relative math."""
 
 import logging
+import os
 from dataclasses import replace
 from datetime import datetime
 from typing import Callable
@@ -12,6 +13,7 @@ import win32gui
 import win32process
 from screeninfo import get_monitors
 
+from monitorreminder.constants import APP_NAME
 from monitorreminder.models import MonitorSnapshot, Profile, RelativeRect, RestoreSummary, WindowRect, WindowSnapshot
 
 RECT_TOLERANCE = 12
@@ -63,6 +65,12 @@ class WindowManager:
         captured_windows: list[WindowSnapshot] = []
 
         def callback(hwnd: int, _: int) -> bool:
+            try:
+                _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                if pid == os.getpid():
+                    return True
+            except Exception:
+                return True
             is_minimized = bool(win32gui.IsIconic(hwnd))
             if not win32gui.IsWindowVisible(hwnd) and not is_minimized:
                 return True
@@ -127,6 +135,8 @@ class WindowManager:
         )
 
         for window in profile.windows:
+            if window.title == APP_NAME:
+                continue
             hwnd = self._find_window(window.title, window.class_name, window.process_name)
             if not hwnd:
                 summary.missing_count += 1

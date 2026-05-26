@@ -37,6 +37,9 @@ class MonitorReminderApp(ctk.CTk):
         self.monitor_summary = StringVar(value=self._format_monitors())
         self._profile_cards: list[ctk.CTkButton] = []
         self._applying_saved_window_state = True
+        self._geometry_save_job: str | None = None
+        self._geometry_save_delay_ms = 280
+        self._auto_restore_lock = threading.Lock()
         self._last_saved_geometry = (
             self.config_data.ui.width,
             self.config_data.ui.height,
@@ -104,6 +107,8 @@ class MonitorReminderApp(ctk.CTk):
         info_color = ("#d6f4ef", "#0a2b24")
         automation_color = ("#e8f1ff", "#11263d")
         status_color = ("#d8eafc", "#0c2238")
+        rail_color = ("#4bd0ff", "#1a86b8")
+        border_color = ("#86c5eb", "#1b4262")
         selected_color = ("#24706c", "#24706c")
         selected_hover = ("#1f5c59", "#1f5c59")
         danger_color = ("#b03d3d", "#b03d3d")
@@ -112,17 +117,21 @@ class MonitorReminderApp(ctk.CTk):
         # Hero area groups primary actions and global app controls.
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
+        self.configure(fg_color=("#c9dbef", "#060d19"))
 
-        hero = ctk.CTkFrame(self, fg_color=hero_color, corner_radius=28)
+        hero = ctk.CTkFrame(self, fg_color=hero_color, corner_radius=28, border_width=1, border_color=border_color)
         hero.grid(row=0, column=0, padx=24, pady=(24, 12), sticky="nsew")
         hero.grid_columnconfigure(0, weight=3)
         hero.grid_columnconfigure(1, weight=2)
 
+        neon_rail = ctk.CTkFrame(hero, fg_color=rail_color, corner_radius=10, height=8)
+        neon_rail.grid(row=0, column=0, columnspan=2, padx=18, pady=(12, 2), sticky="ew")
+
         title = ctk.CTkLabel(hero, text=self.t("app_title"), font=title_font)
-        title.grid(row=0, column=0, padx=24, pady=(20, 4), sticky="w")
+        title.grid(row=1, column=0, padx=24, pady=(20, 4), sticky="w")
 
         subtitle = ctk.CTkLabel(hero, text=self.t("subtitle"), font=subtitle_font)
-        subtitle.grid(row=1, column=0, padx=24, pady=(0, 6), sticky="w")
+        subtitle.grid(row=2, column=0, padx=24, pady=(0, 6), sticky="w")
 
         hero_badge = ctk.CTkLabel(
             hero,
@@ -133,10 +142,10 @@ class MonitorReminderApp(ctk.CTk):
             padx=12,
             pady=4,
         )
-        hero_badge.grid(row=2, column=0, padx=24, pady=(0, 18), sticky="w")
+        hero_badge.grid(row=3, column=0, padx=24, pady=(0, 18), sticky="w")
 
         controls = ctk.CTkFrame(hero, fg_color="transparent")
-        controls.grid(row=0, column=1, rowspan=3, padx=24, pady=20, sticky="e")
+        controls.grid(row=1, column=1, rowspan=3, padx=24, pady=20, sticky="e")
         controls.grid_columnconfigure((0, 1), weight=1)
 
         language_menu = ctk.CTkOptionMenu(
@@ -188,7 +197,7 @@ class MonitorReminderApp(ctk.CTk):
         body.grid_columnconfigure(1, weight=4)
         body.grid_rowconfigure(0, weight=1)
 
-        left_panel = ctk.CTkFrame(body, corner_radius=24, fg_color=shell_color)
+        left_panel = ctk.CTkFrame(body, corner_radius=24, fg_color=shell_color, border_width=1, border_color=border_color)
         left_panel.grid(row=0, column=0, padx=(0, 12), sticky="nsew")
         left_panel.grid_columnconfigure(0, weight=1)
         left_panel.grid_rowconfigure(1, weight=1)
@@ -222,7 +231,7 @@ class MonitorReminderApp(ctk.CTk):
         rename_entry.bind("<Return>", lambda _event: self.rename_selected_profile())
         rename_entry.bind("<FocusOut>", lambda _event: self.rename_selected_profile())
 
-        right_panel = ctk.CTkFrame(body, corner_radius=24, fg_color=shell_color)
+        right_panel = ctk.CTkFrame(body, corner_radius=24, fg_color=shell_color, border_width=1, border_color=border_color)
         right_panel.grid(row=0, column=1, padx=(12, 0), sticky="nsew")
         right_panel.grid_columnconfigure(0, weight=1)
         right_panel.grid_rowconfigure(6, weight=1)
@@ -294,7 +303,14 @@ class MonitorReminderApp(ctk.CTk):
         windows_hint = ctk.CTkLabel(right_panel, text=self.t("windows_hint"), font=body_font)
         windows_hint.grid(row=6, column=0, padx=20, pady=(0, 8), sticky="w")
 
-        self.window_list = ctk.CTkTextbox(right_panel, height=160)
+        self.window_list = ctk.CTkTextbox(
+            right_panel,
+            height=160,
+            font=mono_font,
+            fg_color=("#dcefff", "#0b1c2d"),
+            border_width=1,
+            border_color=("#79b8df", "#1f4d70"),
+        )
         self.window_list.grid(row=7, column=0, padx=20, pady=(0, 20), sticky="nsew")
         self.window_list.configure(state="disabled")
 
@@ -452,6 +468,7 @@ class MonitorReminderApp(ctk.CTk):
     def _change_language(self, language: str) -> None:
         """Persist language changes and restart the UI so all labels refresh consistently."""
         self.config_data.ui.language = language
+        self._cancel_scheduled_geometry_save()
         self._persist_window_geometry(force=True)
         self.stop_monitoring()
         self.destroy()
@@ -490,6 +507,9 @@ class MonitorReminderApp(ctk.CTk):
         self._set_status(self.t("status_monitoring"))
         # Auto-restore the selected profile in a background thread so the GUI
         # doesn't freeze while windows are being repositioned.
+        if not self._auto_restore_lock.acquire(blocking=False):
+            self._set_status(self.t("status_monitoring_busy"))
+            return
         profile = self.current_profile
         threading.Thread(target=self._auto_restore_after_change, args=(profile,), daemon=True).start()
 
@@ -510,6 +530,8 @@ class MonitorReminderApp(ctk.CTk):
         except Exception:
             self.logger.exception("Auto-restore after monitor change failed")
             self.after(0, lambda: self._set_status(self.t("status_error")))
+        finally:
+            self._auto_restore_lock.release()
 
     def _refresh_window_list(self) -> None:
         """Show a compact preview of the windows saved in the active profile."""
@@ -595,11 +617,36 @@ class MonitorReminderApp(ctk.CTk):
         self._last_saved_geometry = snapshot
         save_config(self.config_data)
 
-    def _on_configure(self, _event: object) -> None:
+    def _schedule_geometry_save(self) -> None:
+        """Throttle geometry writes while the user drags/resizes the window."""
+        if self._applying_saved_window_state:
+            return
+        if self._geometry_save_job is not None:
+            try:
+                self.after_cancel(self._geometry_save_job)
+            except Exception:
+                pass
+        self._geometry_save_job = self.after(self._geometry_save_delay_ms, self._flush_scheduled_geometry_save)
+
+    def _flush_scheduled_geometry_save(self) -> None:
+        self._geometry_save_job = None
         self._persist_window_geometry()
+
+    def _cancel_scheduled_geometry_save(self) -> None:
+        if self._geometry_save_job is None:
+            return
+        try:
+            self.after_cancel(self._geometry_save_job)
+        except Exception:
+            pass
+        self._geometry_save_job = None
+
+    def _on_configure(self, _event: object) -> None:
+        self._schedule_geometry_save()
 
     def _on_close(self) -> None:
         """Persist state and close cleanly."""
+        self._cancel_scheduled_geometry_save()
         self._persist_window_geometry(force=True)
         self.stop_monitoring()
         self.destroy()

@@ -1,5 +1,6 @@
 import logging
 
+from monitorreminder.constants import APP_NAME
 from monitorreminder.models import MonitorSnapshot, Profile, RelativeRect, WindowRect, WindowSnapshot
 from monitorreminder.window_manager import WindowManager
 
@@ -209,3 +210,32 @@ def test_restore_uses_monitor_index_when_name_changes(monkeypatch) -> None:
     assert summary.restored_count == 1
     # Must restore on index=1 monitor (x starts at 1920), not on primary.
     assert captured_calls == [(2112, 108, 960, 540)]
+
+
+def test_restore_skips_monitorreminder_window(monkeypatch) -> None:
+    manager = WindowManager(logging.getLogger("test-skip-app-window"))
+    monitor = MonitorSnapshot(name="Primary", x=0, y=0, width=1920, height=1080, is_primary=True)
+    profile = Profile(
+        id=1,
+        name="Desk",
+        windows=[
+            WindowSnapshot(
+                title=APP_NAME,
+                process_name="MonitorReminder.exe",
+                class_name="TkTopLevel",
+                rect=WindowRect(left=100, top=100, width=900, height=650),
+                monitor_name="Primary",
+                relative_rect=RelativeRect(x=0.05, y=0.05, width=0.45, height=0.45),
+            )
+        ],
+    )
+
+    find_calls: list[str] = []
+    monkeypatch.setattr(manager, "monitor_snapshots", lambda: [monitor])
+    monkeypatch.setattr(manager, "_find_window", lambda title, class_name, process_name="": find_calls.append(title))
+
+    summary = manager.restore_profile(profile)
+
+    assert summary.restored_count == 0
+    assert summary.missing_count == 0
+    assert find_calls == []
