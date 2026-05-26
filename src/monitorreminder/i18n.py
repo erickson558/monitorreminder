@@ -33,6 +33,8 @@ TRANSLATIONS = {
         "watcher": "Automatización",
         "profile_name": "Nombre del perfil",
         "rename_hint": "Escribe un nombre corto para el perfil seleccionado.",
+        "status_saved_restored": "Guardado y restaurado ({mode}): movidas {restored}, ya correctas {aligned}",
+        "status_auto_restored": "Auto-restaurado tras cambio de pantalla ({mode}): movidas {restored}, ya correctas {aligned}, no encontradas {missing}, fallidas {failed}",
     },
     "en": {
         "app_title": "MonitorReminder",
@@ -66,6 +68,8 @@ TRANSLATIONS = {
         "watcher": "Automation",
         "profile_name": "Profile name",
         "rename_hint": "Type a short name for the selected profile.",
+        "status_saved_restored": "Saved and restored ({mode}): moved {restored}, already correct {aligned}",
+        "status_auto_restored": "Auto-restored after display change ({mode}): moved {restored}, already correct {aligned}, missing {missing}, failed {failed}",
     },
 }
 

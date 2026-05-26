@@ -3,6 +3,7 @@ from __future__ import annotations
 """Desktop UI for saving and restoring monitor-aware window profiles."""
 
 import logging
+import threading
 import webbrowser
 from functools import partial
 from tkinter import Menu, StringVar
@@ -252,14 +253,22 @@ class MonitorReminderApp(ctk.CTk):
         save_config(self.config_data)
 
     def save_selected_profile(self) -> None:
-        """Capture the current visible windows into the selected profile."""
+        """Capture the current visible windows into the selected profile and immediately
+        restore them so every window moves to its saved position."""
         try:
             updated = self.window_manager.capture_profile(self.current_profile)
             self._replace_profile(updated)
             self.profile_name.set(updated.name)
             self._render_profile_cards()
             self._refresh_window_list()
-            self._set_status(self.t("status_saved"))
+            # Restore immediately so all windows are aligned to the captured positions.
+            summary = self.window_manager.restore_profile(updated)
+            mode_label = self.t(f"restore_mode_{summary.restore_mode}")
+            self._set_status(self.t("status_saved_restored").format(
+                mode=mode_label,
+                restored=summary.restored_count,
+                aligned=summary.already_aligned_count,
+            ))
         except Exception:
             self.logger.exception("Profile capture failed")
             self._set_status(self.t("status_error"))
@@ -366,6 +375,28 @@ class MonitorReminderApp(ctk.CTk):
     def _refresh_monitors(self) -> None:
         self.monitor_summary.set(self._format_monitors())
         self._set_status(self.t("status_monitoring"))
+        # Auto-restore the selected profile in a background thread so the GUI
+        # doesn't freeze while windows are being repositioned.
+        profile = self.current_profile
+        threading.Thread(target=self._auto_restore_after_change, args=(profile,), daemon=True).start()
+
+    def _auto_restore_after_change(self, profile: Profile) -> None:
+        """Run restore after a monitor layout change (called from background thread)."""
+        try:
+            summary = self.window_manager.restore_profile(profile)
+            mode_label = self.t(f"restore_mode_{summary.restore_mode}")
+            self.after(0, lambda: self._set_status(
+                self.t("status_auto_restored").format(
+                    mode=mode_label,
+                    restored=summary.restored_count,
+                    aligned=summary.already_aligned_count,
+                    missing=summary.missing_count,
+                    failed=summary.failed_count,
+                )
+            ))
+        except Exception:
+            self.logger.exception("Auto-restore after monitor change failed")
+            self.after(0, lambda: self._set_status(self.t("status_error")))
 
     def _refresh_window_list(self) -> None:
         """Show a compact preview of the windows saved in the active profile."""
