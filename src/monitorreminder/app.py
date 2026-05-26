@@ -39,6 +39,8 @@ class MonitorReminderApp(ctk.CTk):
         self._applying_saved_window_state = True
         self._geometry_save_job: str | None = None
         self._geometry_save_delay_ms = 280
+        self._opacity_guard_job: str | None = None
+        self._opacity_guard_interval_ms = 1200
         self._auto_restore_lock = threading.Lock()
         self._last_saved_geometry = (
             self.config_data.ui.width,
@@ -55,6 +57,7 @@ class MonitorReminderApp(ctk.CTk):
         self.geometry(
             f"{self.config_data.ui.width}x{self.config_data.ui.height}+{self.config_data.ui.pos_x}+{self.config_data.ui.pos_y}"
         )
+        self._enforce_window_opacity()
         self.minsize(1024, 700)
         if icon_path().exists():
             try:
@@ -73,6 +76,7 @@ class MonitorReminderApp(ctk.CTk):
         self._render_profile_cards()
         self._refresh_window_list()
         self.after(120, self._restore_saved_window_state)
+        self._start_opacity_guard()
 
         if self.config_data.ui.auto_start_monitoring:
             self.start_monitoring()
@@ -103,12 +107,14 @@ class MonitorReminderApp(ctk.CTk):
         mono_font = ctk.CTkFont("Consolas", 11)
 
         hero_color = ("#d1ebff", "#081b2d")
-        shell_color = ("#eef6ff", "#0f2135")
+        shell_color = ("#dfebf7", "#0d1b2d")
         info_color = ("#d6f4ef", "#0a2b24")
         automation_color = ("#e8f1ff", "#11263d")
         status_color = ("#d8eafc", "#0c2238")
         rail_color = ("#4bd0ff", "#1a86b8")
         border_color = ("#86c5eb", "#1b4262")
+        panel_glow_color = ("#95d8ff", "#173f5d")
+        chart_color = ("#1a4867", "#58c1f2")
         selected_color = ("#24706c", "#24706c")
         selected_hover = ("#1f5c59", "#1f5c59")
         danger_color = ("#b03d3d", "#b03d3d")
@@ -129,6 +135,17 @@ class MonitorReminderApp(ctk.CTk):
 
         title = ctk.CTkLabel(hero, text=self.t("app_title"), font=title_font)
         title.grid(row=1, column=0, padx=24, pady=(20, 4), sticky="w")
+
+        pulse = ctk.CTkLabel(
+            hero,
+            text=self.t("pulse_online"),
+            font=ctk.CTkFont("Consolas", 11, "bold"),
+            fg_color=("#c3f4ff", "#0f3850"),
+            corner_radius=12,
+            padx=10,
+            pady=4,
+        )
+        pulse.grid(row=1, column=0, padx=24, pady=(10, 0), sticky="e")
 
         subtitle = ctk.CTkLabel(hero, text=self.t("subtitle"), font=subtitle_font)
         subtitle.grid(row=2, column=0, padx=24, pady=(0, 6), sticky="w")
@@ -197,13 +214,22 @@ class MonitorReminderApp(ctk.CTk):
         body.grid_columnconfigure(1, weight=4)
         body.grid_rowconfigure(0, weight=1)
 
+        left_rail = ctk.CTkFrame(body, fg_color=rail_color, width=6, corner_radius=8)
+        left_rail.grid(row=0, column=0, padx=(0, 8), sticky="nsw")
+
+        right_rail = ctk.CTkFrame(body, fg_color=rail_color, width=6, corner_radius=8)
+        right_rail.grid(row=0, column=1, padx=(8, 0), sticky="nse")
+
         left_panel = ctk.CTkFrame(body, corner_radius=24, fg_color=shell_color, border_width=1, border_color=border_color)
-        left_panel.grid(row=0, column=0, padx=(0, 12), sticky="nsew")
+        left_panel.grid(row=0, column=0, padx=(10, 12), sticky="nsew")
         left_panel.grid_columnconfigure(0, weight=1)
         left_panel.grid_rowconfigure(1, weight=1)
 
+        left_glow = ctk.CTkFrame(left_panel, fg_color=panel_glow_color, height=4, corner_radius=8)
+        left_glow.grid(row=0, column=0, padx=16, pady=(14, 0), sticky="ew")
+
         profiles_label = ctk.CTkLabel(left_panel, text=self.t("profiles"), font=section_font)
-        profiles_label.grid(row=0, column=0, padx=20, pady=(20, 10), sticky="w")
+        profiles_label.grid(row=0, column=0, padx=20, pady=(18, 10), sticky="w")
 
         self.profile_cards_container = ctk.CTkFrame(left_panel, fg_color="transparent")
         self.profile_cards_container.grid(row=1, column=0, padx=16, pady=(0, 12), sticky="nsew")
@@ -232,12 +258,15 @@ class MonitorReminderApp(ctk.CTk):
         rename_entry.bind("<FocusOut>", lambda _event: self.rename_selected_profile())
 
         right_panel = ctk.CTkFrame(body, corner_radius=24, fg_color=shell_color, border_width=1, border_color=border_color)
-        right_panel.grid(row=0, column=1, padx=(12, 0), sticky="nsew")
+        right_panel.grid(row=0, column=1, padx=(12, 10), sticky="nsew")
         right_panel.grid_columnconfigure(0, weight=1)
         right_panel.grid_rowconfigure(6, weight=1)
 
+        right_glow = ctk.CTkFrame(right_panel, fg_color=panel_glow_color, height=4, corner_radius=8)
+        right_glow.grid(row=0, column=0, padx=16, pady=(14, 0), sticky="ew")
+
         monitor_label = ctk.CTkLabel(right_panel, text=self.t("monitor_layout"), font=section_font)
-        monitor_label.grid(row=0, column=0, padx=20, pady=(20, 10), sticky="w")
+        monitor_label.grid(row=0, column=0, padx=20, pady=(18, 10), sticky="w")
 
         monitor_hint = ctk.CTkLabel(right_panel, text=self.t("monitor_hint"), font=body_font)
         monitor_hint.grid(row=1, column=0, padx=20, pady=(0, 8), sticky="w")
@@ -314,9 +343,28 @@ class MonitorReminderApp(ctk.CTk):
         self.window_list.grid(row=7, column=0, padx=20, pady=(0, 20), sticky="nsew")
         self.window_list.configure(state="disabled")
 
+        telemetry = ctk.CTkFrame(self, fg_color=("#d2e9ff", "#0a1a2b"), corner_radius=14, border_width=1, border_color=border_color)
+        telemetry.grid(row=3, column=0, padx=24, pady=(0, 10), sticky="ew")
+        telemetry.grid_columnconfigure(0, weight=1)
+        telemetry.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(
+            telemetry,
+            text=self.t("telemetry_cpu"),
+            font=ctk.CTkFont("Consolas", 11, "bold"),
+            text_color=chart_color,
+            anchor="w",
+        ).grid(row=0, column=0, padx=14, pady=8, sticky="w")
+        ctk.CTkLabel(
+            telemetry,
+            text=self.t("telemetry_sync"),
+            font=ctk.CTkFont("Consolas", 11, "bold"),
+            text_color=chart_color,
+            anchor="e",
+        ).grid(row=0, column=1, padx=14, pady=8, sticky="e")
+
         # Status bar keeps feedback visible without interrupting the user flow.
         status_bar = ctk.CTkFrame(self, corner_radius=18, fg_color=status_color)
-        status_bar.grid(row=2, column=0, padx=24, pady=(0, 24), sticky="ew")
+        status_bar.grid(row=4, column=0, padx=24, pady=(0, 24), sticky="ew")
         status_bar.grid_columnconfigure(0, weight=1)
         status_bar.grid_columnconfigure(1, weight=0)
 
@@ -503,6 +551,7 @@ class MonitorReminderApp(ctk.CTk):
         self.after(0, self._refresh_monitors)
 
     def _refresh_monitors(self) -> None:
+        self._enforce_window_opacity()
         self.monitor_summary.set(self._format_monitors())
         self._set_status(self.t("status_monitoring"))
         # Auto-restore the selected profile in a background thread so the GUI
@@ -575,6 +624,17 @@ class MonitorReminderApp(ctk.CTk):
             return ""
         return f"{self.config_data.ui.auto_close_seconds}s / {self.auto_close_remaining}s"
 
+    def _enforce_window_opacity(self) -> None:
+        """Keep the main window fully opaque across monitor transitions."""
+        try:
+            self.attributes("-alpha", 1.0)
+        except Exception:
+            pass
+
+    def _start_opacity_guard(self) -> None:
+        self._enforce_window_opacity()
+        self._opacity_guard_job = self.after(self._opacity_guard_interval_ms, self._start_opacity_guard)
+
     def _restore_saved_window_state(self) -> None:
         """Restore maximized/normal state after startup geometry is applied."""
         try:
@@ -642,10 +702,17 @@ class MonitorReminderApp(ctk.CTk):
         self._geometry_save_job = None
 
     def _on_configure(self, _event: object) -> None:
+        self._enforce_window_opacity()
         self._schedule_geometry_save()
 
     def _on_close(self) -> None:
         """Persist state and close cleanly."""
+        if self._opacity_guard_job is not None:
+            try:
+                self.after_cancel(self._opacity_guard_job)
+            except Exception:
+                pass
+            self._opacity_guard_job = None
         self._cancel_scheduled_geometry_save()
         self._persist_window_geometry(force=True)
         self.stop_monitoring()

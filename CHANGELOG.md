@@ -5,6 +5,8 @@
 - Reduced GUI lag while moving/resizing the main window by debouncing geometry persistence writes.
 - Prevented overlapping auto-restore tasks when monitor events fire in quick succession.
 - Excluded the MonitorReminder main window from capture/restore to avoid visual glitches while moving across displays.
+- Added an opacity guard that keeps the main window at alpha 1.0 during monitor transitions.
+- Applied a stronger command-center futuristic UI pass with neon rails, telemetry strip, and more distinctive labels.
 
 ## V0.1.0
 
