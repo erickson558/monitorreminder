@@ -83,6 +83,7 @@ class UiSettings:
     auto_close_seconds: int = 60
     selected_profile: int = 1
     theme_mode: str = "dark"
+    window_state: str = "normal"
 
 
 @dataclass(slots=True)

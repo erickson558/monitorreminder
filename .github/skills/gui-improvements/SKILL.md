@@ -15,6 +15,18 @@ user-invocable: true
 
 ## Guiding principles
 
+### 0. Futuristic direction (default for this app)
+When the user asks for a "futuristic" look, prefer this visual language:
+- Deep navy + cyan palette with one green accent for positive actions
+- "Command center" hierarchy: hero header, cards, and status rail
+- Compact technical readouts for monitor info (monospace labels)
+- Labels that feel like actions/scenes, not generic CRUD text
+
+Avoid these in futuristic mode:
+- Flat gray backgrounds and plain default buttons
+- Overly rounded toy-like widgets
+- Neon overload with poor contrast
+
 ### 1. Opinionated color palette
 Do not use default customtkinter blue everywhere. Reserve it for secondary actions.
 Use these consistently:

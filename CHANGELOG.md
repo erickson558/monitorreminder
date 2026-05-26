@@ -1,5 +1,12 @@
 # Changelog
 
+## V0.1.0
+
+- Futuristic UI refresh with a stronger visual hierarchy: command-center hero, stylized cards, clearer monitor readouts, and updated action styling.
+- Added full window geometry persistence, including normal/maximized state restoration between sessions.
+- Improved bilingual UI copy (ES/EN) for monitor info, automation guidance, and support messaging.
+- Updated GUI skill guidance to include a reusable futuristic design direction.
+
 ## V0.0.4
 
 - Dual restore mode: uses exact pixel coordinates when the monitor layout matches the saved signature; falls back to proportional placement when the display configuration has changed.
