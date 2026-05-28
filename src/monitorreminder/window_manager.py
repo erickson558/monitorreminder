@@ -185,9 +185,19 @@ class WindowManager:
         return summary
 
     def _find_monitor_with_index(self, left: int, top: int, monitors: list[MonitorSnapshot]) -> tuple[MonitorSnapshot, int]:
-        """Find the monitor/index that currently contains a window origin point."""
+        """Find the monitor/index that currently contains a window origin point.
+
+        Maximized windows on Windows extend ~8 px off-screen (top = -8 or -9), so a
+        strict x-and-y containment check silently falls back to the primary monitor for
+        every maximized window.  The x-only pass catches those cases correctly.
+        """
         for index, monitor in enumerate(monitors):
             if monitor.x <= left < monitor.x + monitor.width and monitor.y <= top < monitor.y + monitor.height:
+                return monitor, index
+
+        # Maximized windows have a slightly negative top — match by x column only.
+        for index, monitor in enumerate(monitors):
+            if monitor.x <= left < monitor.x + monitor.width:
                 return monitor, index
 
         primary_index = next((index for index, monitor in enumerate(monitors) if monitor.is_primary), 0)
@@ -244,17 +254,23 @@ class WindowManager:
 
         def callback(hwnd: int, _: int) -> bool:
             nonlocal match
-            if match is not None:
-                return True
-            if not win32gui.IsWindowVisible(hwnd) and not win32gui.IsIconic(hwnd):
-                return True
-            if win32gui.GetWindowText(hwnd).strip() == title and win32gui.GetClassName(hwnd) == class_name:
-                if process_name and process_name != "unknown" and self._process_name(hwnd) != process_name:
+            try:
+                if match is not None:
                     return True
-                match = hwnd
+                if not win32gui.IsWindowVisible(hwnd) and not win32gui.IsIconic(hwnd):
+                    return True
+                if win32gui.GetWindowText(hwnd).strip() == title and win32gui.GetClassName(hwnd) == class_name:
+                    if process_name and process_name != "unknown" and self._process_name(hwnd) != process_name:
+                        return True
+                    match = hwnd
+            except Exception:
+                pass
             return True
 
-        win32gui.EnumWindows(callback, 0)
+        try:
+            win32gui.EnumWindows(callback, 0)
+        except Exception:
+            pass
         return match
 
     def _normal_rect_from_placement(self, hwnd: int) -> tuple[int, int, int, int] | None:

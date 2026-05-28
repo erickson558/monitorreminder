@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## V0.3.0
+
+- Fixed monitor assignment for maximized windows: `_find_monitor_with_index` now uses an x-only fallback when the strict (x, y) containment check fails due to the negative top coordinate that Windows uses for maximized window frames (-8 / -9 px). This eliminates `relative_rect.x > 1.0` captures that caused off-screen placement in proportional-mode restore.
+- Added exception safety to `_find_window`: the enumeration callback now wraps all win32 calls in `try/except`, and a second guard wraps `EnumWindows` itself, preventing a single bad handle from crashing an entire profile restore.
+- Auto-restore after monitor change now waits 3 seconds before restoring, giving Windows time to finish repositioning windows after the monitor event fires.
+
 ## V0.2.0
 
 - Added overwrite confirmation dialog when saving a profile that already has captured windows, preventing accidental data loss.

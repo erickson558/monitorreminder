@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 import webbrowser
 from functools import partial
 from tkinter import Menu, StringVar, messagebox
@@ -575,6 +576,7 @@ class MonitorReminderApp(ctk.CTk):
     def _auto_restore_after_change(self, profile: Profile) -> None:
         """Run restore after a monitor layout change (called from background thread)."""
         try:
+            time.sleep(3)  # Wait for Windows to finish repositioning windows after the monitor event.
             summary = self.window_manager.restore_profile(profile)
             mode_label = self.t(f"restore_mode_{summary.restore_mode}")
             self.after(0, lambda: self._set_status(

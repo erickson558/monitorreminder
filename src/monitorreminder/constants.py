@@ -1,5 +1,5 @@
 APP_NAME = "MonitorReminder"
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.3.0"
 APP_TAG = f"V{APP_VERSION}"
 AUTHOR = "Synyster Rick"
 COPYRIGHT_YEAR = "2026"

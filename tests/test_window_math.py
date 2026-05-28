@@ -13,6 +13,26 @@ def test_relative_rect_restores_with_expected_dimensions() -> None:
     assert (left, top, width, height) == (192, 216, 960, 540)
 
 
+def test_find_monitor_with_index_handles_negative_top_maximized_windows() -> None:
+    """Maximized windows on Windows have top=-8 or -9 (frame extends off-screen).
+    The function must still assign them to the correct monitor using x-only matching."""
+    manager = WindowManager(logging.getLogger("test-negative-top"))
+    monitors = [
+        MonitorSnapshot(name="DISPLAY1", x=0, y=0, width=1920, height=1080, is_primary=True),
+        MonitorSnapshot(name="DISPLAY2", x=1920, y=0, width=1920, height=1080, is_primary=False),
+    ]
+
+    # Window maximized on DISPLAY2: left=1912 is still in DISPLAY1, but left=3832 is in DISPLAY2.
+    # Both have top=-9 which fails the y-containment check.
+    monitor_d1, idx_d1 = manager._find_monitor_with_index(1912, -9, monitors)
+    assert monitor_d1.name == "DISPLAY1"
+    assert idx_d1 == 0
+
+    monitor_d2, idx_d2 = manager._find_monitor_with_index(3832, -9, monitors)
+    assert monitor_d2.name == "DISPLAY2"
+    assert idx_d2 == 1
+
+
 def test_monitor_signature_is_stable_when_monitor_order_changes() -> None:
     manager = WindowManager(logging.getLogger("test-signature"))
     monitors_a = [
