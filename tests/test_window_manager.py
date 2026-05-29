@@ -65,6 +65,7 @@ def test_restore_profile_skips_windows_that_already_match_target(monkeypatch) ->
 
     monkeypatch.setattr(manager, "monitor_snapshots", lambda: [monitor])
     monkeypatch.setattr(manager, "_find_window", lambda title, class_name, process_name="": 99)
+    monkeypatch.setattr(manager, "_is_window_maximized", lambda hwnd: False)
     monkeypatch.setattr("monitorreminder.window_manager.win32gui.GetWindowRect", lambda hwnd: (192, 216, 1152, 756))
     monkeypatch.setattr("monitorreminder.window_manager.win32gui.ShowWindow", lambda hwnd, mode: None)
     monkeypatch.setattr(
@@ -111,6 +112,7 @@ def test_restore_uses_exact_mode_when_monitor_signature_matches(monkeypatch) -> 
     monkeypatch.setattr(manager, "monitor_snapshots", lambda: [monitor])
     monkeypatch.setattr(manager, "monitor_signature", lambda monitors=None: saved_signature)
     monkeypatch.setattr(manager, "_find_window", lambda title, class_name, process_name="": 99)
+    monkeypatch.setattr(manager, "_is_window_maximized", lambda hwnd: False)
     # Current position differs enough that the window will be moved.
     monkeypatch.setattr("monitorreminder.window_manager.win32gui.GetWindowRect", lambda hwnd: (0, 0, 400, 300))
     monkeypatch.setattr("monitorreminder.window_manager.win32gui.ShowWindow", lambda hwnd, mode: None)
@@ -154,6 +156,7 @@ def test_restore_uses_proportional_mode_when_monitor_signature_differs(monkeypat
     monkeypatch.setattr(manager, "monitor_snapshots", lambda: [monitor])
     monkeypatch.setattr(manager, "monitor_signature", lambda monitors=None: "0,0,1920,1080,1")
     monkeypatch.setattr(manager, "_find_window", lambda title, class_name, process_name="": 99)
+    monkeypatch.setattr(manager, "_is_window_maximized", lambda hwnd: False)
     monkeypatch.setattr("monitorreminder.window_manager.win32gui.GetWindowRect", lambda hwnd: (0, 0, 400, 300))
     monkeypatch.setattr("monitorreminder.window_manager.win32gui.ShowWindow", lambda hwnd, mode: None)
     monkeypatch.setattr(
@@ -197,6 +200,7 @@ def test_restore_uses_monitor_index_when_name_changes(monkeypatch) -> None:
     monkeypatch.setattr(manager, "monitor_snapshots", lambda: monitors)
     monkeypatch.setattr(manager, "monitor_signature", lambda monitors=None: "different")
     monkeypatch.setattr(manager, "_find_window", lambda title, class_name, process_name="": 99)
+    monkeypatch.setattr(manager, "_is_window_maximized", lambda hwnd: False)
     monkeypatch.setattr("monitorreminder.window_manager.win32gui.GetWindowRect", lambda hwnd: (0, 0, 400, 300))
     monkeypatch.setattr("monitorreminder.window_manager.win32gui.ShowWindow", lambda hwnd, mode: None)
     monkeypatch.setattr(
@@ -210,6 +214,64 @@ def test_restore_uses_monitor_index_when_name_changes(monkeypatch) -> None:
     assert summary.restored_count == 1
     # Must restore on index=1 monitor (x starts at 1920), not on primary.
     assert captured_calls == [(2112, 108, 960, 540)]
+
+
+def test_restore_maximized_window_repositions_then_maximizes(monkeypatch) -> None:
+    """A window saved as maximized must be moved to its normal rect on the correct monitor
+    and then re-maximized via SW_MAXIMIZE so Windows fills the right screen."""
+    manager = WindowManager(logging.getLogger("test-maximized-restore"))
+    monitors = [
+        MonitorSnapshot(name="Primary", x=0, y=0, width=1920, height=1080, is_primary=True),
+        MonitorSnapshot(name="Secondary", x=1920, y=0, width=1920, height=1080, is_primary=False),
+    ]
+    saved_signature = "0,0,1920,1080,1|1920,0,1920,1080,0"
+
+    # Window was maximized on Secondary; rect is the *normal* (pre-maximize) position.
+    profile = Profile(
+        id=1,
+        name="Desk",
+        monitor_signature=saved_signature,
+        windows=[
+            WindowSnapshot(
+                title="Editor",
+                process_name="code.exe",
+                class_name="Chrome_WidgetWin_1",
+                rect=WindowRect(left=1960, top=50, width=1200, height=700),
+                monitor_name="Secondary",
+                relative_rect=RelativeRect(x=0.02, y=0.046, width=0.625, height=0.648),
+                is_maximized=True,
+            )
+        ],
+    )
+
+    show_calls: list[int] = []
+    set_pos_calls: list[tuple[int, int, int, int]] = []
+
+    monkeypatch.setattr(manager, "monitor_snapshots", lambda: monitors)
+    monkeypatch.setattr(manager, "monitor_signature", lambda monitors=None: saved_signature)
+    monkeypatch.setattr(manager, "_find_window", lambda title, class_name, process_name="": 99)
+    # Window is currently maximized on Primary (moved there after monitor change).
+    monkeypatch.setattr(manager, "_is_window_maximized", lambda hwnd: True)
+    monkeypatch.setattr("monitorreminder.window_manager.win32gui.GetWindowRect", lambda hwnd: (0, 0, 1920, 1080))
+    monkeypatch.setattr(
+        "monitorreminder.window_manager.win32gui.ShowWindow",
+        lambda hwnd, mode: show_calls.append(mode),
+    )
+    monkeypatch.setattr(
+        "monitorreminder.window_manager.win32gui.SetWindowPos",
+        lambda hwnd, after, left, top, width, height, flags: set_pos_calls.append((left, top, width, height)),
+    )
+
+    summary = manager.restore_profile(profile)
+
+    assert summary.restored_count == 1
+    assert summary.failed_count == 0
+    # SetWindowPos must receive the *normal* rect (not the current maximized rect).
+    assert set_pos_calls == [(1960, 50, 1200, 700)]
+    # SW_RESTORE (9) must precede SW_MAXIMIZE (3).
+    import win32con as _w
+    assert _w.SW_RESTORE in show_calls
+    assert show_calls[-1] == _w.SW_MAXIMIZE
 
 
 def test_restore_skips_monitorreminder_window(monkeypatch) -> None:

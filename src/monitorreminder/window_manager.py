@@ -60,7 +60,13 @@ class WindowManager:
         )
 
     def capture_profile(self, profile: Profile) -> Profile:
-        """Capture top-level windows (normal and minimized) with monitor-relative positions."""
+        """Capture top-level windows (normal, minimized, and maximized) with monitor-relative positions.
+
+        For minimized and maximized windows the saved rect is the *normal* (pre-minimize /
+        pre-maximize) rectangle obtained from GetWindowPlacement.rcNormalPosition.  This
+        ensures that restore can place every window at a sensible position on the correct
+        monitor regardless of what state the window was in at capture time.
+        """
         monitors = self.monitor_snapshots()
         captured_windows: list[WindowSnapshot] = []
 
@@ -71,19 +77,39 @@ class WindowManager:
                     return True
             except Exception:
                 return True
+
             is_minimized = bool(win32gui.IsIconic(hwnd))
             if not win32gui.IsWindowVisible(hwnd) and not is_minimized:
                 return True
+
             title = win32gui.GetWindowText(hwnd).strip()
             if not title:
                 return True
             class_name = win32gui.GetClassName(hwnd)
             if class_name in {"Shell_TrayWnd", "Progman", "WorkerW"}:
                 return True
-            if is_minimized:
-                left, top, right, bottom = self._normal_rect_from_placement(hwnd) or win32gui.GetWindowRect(hwnd)
+
+            # Detect maximized state and retrieve the normal (non-minimized,
+            # non-maximized) position via GetWindowPlacement.rcNormalPosition.
+            is_maximized = False
+            normal_pos: tuple[int, int, int, int] | None = None
+            try:
+                placement = win32gui.GetWindowPlacement(hwnd)
+                # placement[1] is showCmd: SW_SHOWMAXIMIZED=3
+                is_maximized = (not is_minimized) and (placement[1] == win32con.SW_SHOWMAXIMIZED)
+                nr = placement[4]  # rcNormalPosition
+                if len(nr) == 4 and nr[2] > nr[0] and nr[3] > nr[1]:
+                    normal_pos = (int(nr[0]), int(nr[1]), int(nr[2]), int(nr[3]))
+            except Exception:
+                pass
+
+            # Always store the *normal* rect so restore can position the window
+            # correctly before re-applying the minimized/maximized state.
+            if (is_minimized or is_maximized) and normal_pos is not None:
+                left, top, right, bottom = normal_pos
             else:
                 left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+
             width = max(right - left, 1)
             height = max(bottom - top, 1)
             monitor, monitor_index = self._find_monitor_with_index(left, top, monitors)
@@ -104,6 +130,7 @@ class WindowManager:
                     relative_rect=relative,
                     monitor_index=monitor_index,
                     is_minimized=is_minimized,
+                    is_maximized=is_maximized,
                 )
             )
             return True
@@ -152,11 +179,20 @@ class WindowManager:
                 target_rect = self._target_rect(window, monitor)
 
             current_is_minimized = bool(win32gui.IsIconic(hwnd))
+            current_is_maximized = self._is_window_maximized(hwnd)
 
-            if self._window_matches_target(hwnd, target_rect) and current_is_minimized == window.is_minimized:
+            # For maximized windows target_rect holds the *normal* rect, while
+            # GetWindowRect returns the maximized rect — they never match, so
+            # maximized windows are always re-positioned to the correct monitor.
+            if (
+                self._window_matches_target(hwnd, target_rect)
+                and current_is_minimized == window.is_minimized
+                and current_is_maximized == window.is_maximized
+            ):
                 summary.already_aligned_count += 1
                 continue
             try:
+                # Restore from any current state so SetWindowPos can reposition freely.
                 win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
                 win32gui.SetWindowPos(
                     hwnd,
@@ -167,7 +203,12 @@ class WindowManager:
                     target_rect.height,
                     win32con.SWP_SHOWWINDOW,
                 )
-                if window.is_minimized:
+                # Re-apply the saved window state after positioning.
+                if window.is_maximized:
+                    # SW_MAXIMIZE fills the monitor that contains the window's
+                    # current (just-set) normal position.
+                    win32gui.ShowWindow(hwnd, win32con.SW_MAXIMIZE)
+                elif window.is_minimized:
                     win32gui.ShowWindow(hwnd, win32con.SW_MINIMIZE)
                 summary.restored_count += 1
             except Exception as exc:  # pragma: no cover
@@ -272,6 +313,13 @@ class WindowManager:
         except Exception:
             pass
         return match
+
+    def _is_window_maximized(self, hwnd: int) -> bool:
+        """Return True when the window is currently in the maximized state."""
+        try:
+            return bool(win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE) & win32con.WS_MAXIMIZE)
+        except Exception:
+            return False
 
     def _normal_rect_from_placement(self, hwnd: int) -> tuple[int, int, int, int] | None:
         """Return the normal (restored) window rectangle when available."""

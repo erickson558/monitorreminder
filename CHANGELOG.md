@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## V0.3.1
+
+- Added `is_maximized` field to `WindowSnapshot` so the maximized/normal/minimized state is persisted per window.
+- Capture now uses `GetWindowPlacement.rcNormalPosition` for both minimized **and** maximized windows, storing the pre-maximize normal rect instead of the full-screen maximized rect. This prevents `relative_rect > 1.0` values and ensures correct monitor assignment for maximized windows.
+- Restore now re-applies the saved window state after repositioning: normal windows stay normal, minimized windows are re-minimized, and maximized windows are moved to the correct monitor's normal rect then re-maximized (`SW_MAXIMIZE`), so Windows fills the right screen.
+- The "already aligned" skip check now also compares `is_maximized` state, ensuring maximized windows always get re-positioned to the correct monitor.
+
 ## V0.3.0
 
 - Fixed monitor assignment for maximized windows: `_find_monitor_with_index` now uses an x-only fallback when the strict (x, y) containment check fails due to the negative top coordinate that Windows uses for maximized window frames (-8 / -9 px). This eliminates `relative_rect.x > 1.0` captures that caused off-screen placement in proportional-mode restore.

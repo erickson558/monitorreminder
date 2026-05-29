@@ -40,6 +40,7 @@ class WindowSnapshot:
     relative_rect: RelativeRect
     monitor_index: int | None = None
     is_minimized: bool = False
+    is_maximized: bool = False
 
 
 @dataclass(slots=True)
