@@ -2,11 +2,12 @@ from __future__ import annotations
 
 """Capture and restore window layouts using Windows APIs and monitor-relative math."""
 
+import ctypes
+import ctypes.wintypes
 import logging
 import os
 from dataclasses import replace
 from datetime import datetime
-from typing import Callable
 
 import win32con
 import win32gui
@@ -17,6 +18,23 @@ from monitorreminder.constants import APP_NAME
 from monitorreminder.models import MonitorSnapshot, Profile, RelativeRect, RestoreSummary, WindowRect, WindowSnapshot
 
 RECT_TOLERANCE = 12
+
+# Class names that belong to UWP/Store apps hosted by ApplicationFrameHost.
+_UWP_CLASS_NAMES = {"ApplicationFrameWindow"}
+
+# Process names that typically run elevated and will be blocked by UIPI.
+_KNOWN_ELEVATED_PROCESSES = {"Taskmgr.exe", "taskmgr.exe"}
+
+
+def _shared_suffix_count(parts1: list[str], parts2: list[str]) -> int:
+    """Count matching segments from the end of two title-segment lists."""
+    count = 0
+    for seg1, seg2 in zip(reversed(parts1), reversed(parts2)):
+        if seg1.strip() == seg2.strip():
+            count += 1
+        else:
+            break
+    return count
 
 try:
     import psutil
@@ -192,24 +210,25 @@ class WindowManager:
                 summary.already_aligned_count += 1
                 continue
             try:
-                # Restore from any current state so SetWindowPos can reposition freely.
-                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-                win32gui.SetWindowPos(
-                    hwnd,
-                    win32con.HWND_TOP,
-                    target_rect.left,
-                    target_rect.top,
-                    target_rect.width,
-                    target_rect.height,
-                    win32con.SWP_SHOWWINDOW,
-                )
-                # Re-apply the saved window state after positioning.
-                if window.is_maximized:
-                    # SW_MAXIMIZE fills the monitor that contains the window's
-                    # current (just-set) normal position.
-                    win32gui.ShowWindow(hwnd, win32con.SW_MAXIMIZE)
-                elif window.is_minimized:
-                    win32gui.ShowWindow(hwnd, win32con.SW_MINIMIZE)
+                self._restore_window(hwnd, target_rect, window.is_minimized, window.is_maximized)
+
+                # Verify the window actually moved; silently-blocked UIPI calls
+                # succeed at the API level but leave the window in place.
+                if not window.is_maximized and not window.is_minimized:
+                    if not self._window_matches_target(hwnd, target_rect):
+                        if self._is_process_elevated(hwnd):
+                            self.logger.warning(
+                                "Skipped elevated window '%s' (%s) — run as Administrator to move it",
+                                window.title, window.process_name,
+                            )
+                        else:
+                            self.logger.warning(
+                                "Window '%s' did not reach target position after restore",
+                                window.title,
+                            )
+                        summary.failed_count += 1
+                        continue
+
                 summary.restored_count += 1
             except Exception as exc:  # pragma: no cover
                 summary.failed_count += 1
@@ -290,20 +309,32 @@ class WindowManager:
         )
 
     def _find_window(self, title: str, class_name: str, process_name: str = "") -> int | None:
-        """Locate a visible top-level window matching the stored identity."""
-        match: int | None = None
+        """Locate a visible top-level window matching the stored identity.
+
+        Three-pass strategy to handle apps with dynamic titles (VSCode, Edge,
+        Brave, Foxit PDF, Postman, etc.):
+
+        1. Exact: title + class_name + process_name.
+        2. Suffix match: class_name + process_name + best shared trailing
+           segment of the title split by \" - \" (e.g. \"Visual Studio Code\"
+           in \"file.py - project - Visual Studio Code\").
+        3. Unique candidate: class_name + process_name match when only one
+           window of that identity exists (title changed completely).
+        """
+        candidates: list[tuple[int, str]] = []
 
         def callback(hwnd: int, _: int) -> bool:
-            nonlocal match
             try:
-                if match is not None:
-                    return True
                 if not win32gui.IsWindowVisible(hwnd) and not win32gui.IsIconic(hwnd):
                     return True
-                if win32gui.GetWindowText(hwnd).strip() == title and win32gui.GetClassName(hwnd) == class_name:
-                    if process_name and process_name != "unknown" and self._process_name(hwnd) != process_name:
+                if win32gui.GetClassName(hwnd) != class_name:
+                    return True
+                if process_name and process_name != "unknown":
+                    if self._process_name(hwnd) != process_name:
                         return True
-                    match = hwnd
+                current_title = win32gui.GetWindowText(hwnd).strip()
+                if current_title:
+                    candidates.append((hwnd, current_title))
             except Exception:
                 pass
             return True
@@ -312,7 +343,92 @@ class WindowManager:
             win32gui.EnumWindows(callback, 0)
         except Exception:
             pass
-        return match
+
+        if not candidates:
+            return None
+
+        # Pass 1: exact title
+        for hwnd, current_title in candidates:
+            if current_title == title:
+                return hwnd
+
+        # Pass 2: best trailing-segment match on " - " parts
+        if title:
+            saved_parts = title.split(" - ")
+            best_hwnd: int | None = None
+            best_score = 0
+            for hwnd, current_title in candidates:
+                score = _shared_suffix_count(saved_parts, current_title.split(" - "))
+                if score > best_score:
+                    best_score = score
+                    best_hwnd = hwnd
+            if best_score >= 1:
+                self.logger.debug(
+                    "Fuzzy-matched '%s' → '%s' (shared suffix segments: %d)",
+                    title, dict(candidates).get(best_hwnd, "?"), best_score,
+                )
+                return best_hwnd
+
+        # Pass 3: unique candidate (only one window of this class+process)
+        if len(candidates) == 1:
+            self.logger.debug(
+                "Fuzzy-matched '%s' → '%s' (unique class+process candidate)",
+                title, candidates[0][1],
+            )
+            return candidates[0][0]
+
+        return None
+
+    def _restore_window(
+        self,
+        hwnd: int,
+        target_rect: WindowRect,
+        is_minimized: bool,
+        is_maximized: bool,
+    ) -> None:
+        """Move and resize a window to target_rect, then re-apply its saved state.
+
+        Uses SetWindowPlacement (which is DPI-context-independent and handles
+        UWP/ApplicationFrameWindow better than SetWindowPos) and falls back to
+        the classic SW_RESTORE → SetWindowPos sequence when placement fails.
+        """
+        show_cmd = (
+            win32con.SW_SHOWMAXIMIZED if is_maximized
+            else win32con.SW_SHOWMINIMIZED if is_minimized
+            else win32con.SW_SHOWNORMAL
+        )
+        normal_right = target_rect.left + target_rect.width
+        normal_bottom = target_rect.top + target_rect.height
+
+        placed = False
+        try:
+            win32gui.SetWindowPlacement(hwnd, (
+                0,          # flags
+                show_cmd,
+                (-1, -1),   # ptMinPosition — keep default
+                (-1, -1),   # ptMaxPosition — keep default
+                (target_rect.left, target_rect.top, normal_right, normal_bottom),
+            ))
+            placed = True
+        except Exception:
+            pass
+
+        if not placed:
+            # Fallback: classic three-step restore.
+            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+            win32gui.SetWindowPos(
+                hwnd,
+                win32con.HWND_TOP,
+                target_rect.left,
+                target_rect.top,
+                target_rect.width,
+                target_rect.height,
+                win32con.SWP_SHOWWINDOW,
+            )
+            if is_maximized:
+                win32gui.ShowWindow(hwnd, win32con.SW_MAXIMIZE)
+            elif is_minimized:
+                win32gui.ShowWindow(hwnd, win32con.SW_MINIMIZE)
 
     def _is_window_maximized(self, hwnd: int) -> bool:
         """Return True when the window is currently in the maximized state."""
@@ -344,3 +460,35 @@ class WindowManager:
             return psutil.Process(pid).name()
         except Exception:
             return "unknown"
+
+    def _is_process_elevated(self, hwnd: int) -> bool:
+        """Return True when the window's process runs with elevated (admin) privileges.
+
+        An elevated target process blocks SetWindowPos calls from a non-elevated
+        caller via UIPI (User Interface Privilege Isolation).  The call succeeds
+        at the API level but the window does not move.
+        """
+        try:
+            _, pid = win32process.GetWindowThreadProcessId(hwnd)
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            h_proc = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if not h_proc:
+                # Cannot open the process handle — almost certainly elevated.
+                return True
+            TOKEN_QUERY = 0x0008
+            h_token = ctypes.c_void_p()
+            if not ctypes.windll.advapi32.OpenProcessToken(h_proc, TOKEN_QUERY, ctypes.byref(h_token)):
+                ctypes.windll.kernel32.CloseHandle(h_proc)
+                return True
+            TOKEN_ELEVATION = 20
+            elevation = ctypes.c_ulong(0)
+            cb = ctypes.c_ulong(0)
+            ctypes.windll.advapi32.GetTokenInformation(
+                h_token, TOKEN_ELEVATION,
+                ctypes.byref(elevation), ctypes.sizeof(elevation), ctypes.byref(cb),
+            )
+            ctypes.windll.kernel32.CloseHandle(h_token)
+            ctypes.windll.kernel32.CloseHandle(h_proc)
+            return bool(elevation.value)
+        except Exception:
+            return False
