@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## V0.3.2
+
+- **Fuzzy window finding (3-pass strategy):** `_find_window` now tries exact title match first, then best shared trailing segment on `" - "`-separated title parts (fixes VSCode, Edge, Brave, Foxit PDF, Postman — all apps whose title changes with the active file or tab), then falls back to the single unique candidate of the same class and process.
+- **UIPI / elevated process detection:** after calling `SetWindowPlacement`, the restore engine verifies the window actually reached its target position. If it did not and the process is elevated (admin), a warning is logged: *"run as Administrator to move it"*, and the window is counted as failed rather than restored. Affected apps: Task Manager, Omen Gaming Hub, Hard Disk Sentinel, and any other UAC-elevated process.
+- **`SetWindowPlacement` as primary restore method:** replaces the three-step `SW_RESTORE` → `SetWindowPos` → `ShowWindow` sequence. `SetWindowPlacement` is DPI-context-independent and handles `ApplicationFrameWindow` (Windows Settings, UWP apps) more reliably. The old sequence is kept as an automatic fallback when `SetWindowPlacement` raises.
+- `APP_VERSION` bumped to `0.3.2` in `constants.py` and `pyproject.toml`.
+- All 14 unit tests updated to mock `SetWindowPlacement` and verify coordinates as `(left, top, right, bottom)` tuples.
+
 ## V0.3.1
 
 - Added `is_maximized` field to `WindowSnapshot` so the maximized/normal/minimized state is persisted per window.
